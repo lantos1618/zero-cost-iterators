@@ -1,0 +1,352 @@
+i8red final verification report (private). Generated 2026-11-21T19:22:22Z
+Scratch copy: /home/ubuntu/i8red-verify, made by rsync from ~/i8red with --exclude .lake, results_i8red, EVIDENCE_i8red.txt, results, native/t_*
+(no inherited Lean build outputs or test records; ~/i8red and ~/i8dot-bend-r5 not modified)
+Command: cd /home/ubuntu/i8red-verify && bash -c 'set -o pipefail; ./run_i8red.sh > EVIDENCE_i8red.txt 2>&1; echo $? > SCRIPT_EXIT'
+Fail-closed rule: every step's exit code is compared with its expected code; any mismatch increments UNEXPECTED and the script's last line [ $UNEXPECTED = 0 ] makes it exit non-zero.
+SCRIPT_EXIT (captured directly) = 0
+TOTAL=64 UNEXPECTED=0
+
+== toolchain
+bend 2.0.40
+Lean (version 4.15.0, x86_64-unknown-linux-gnu, commit 11651562caae, Release)
+gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
+Ubuntu clang version 14.0.0-1ubuntu1.1
+Python 3.12.16
+Linux x86_64
+
+
+== clean Lean build (from no .lake): lean_build exit = exit=0
+build log lines mentioning Built/Compiling/Building: 23
+✔ [11/25] Built Bridge.CSem
+✔ [12/25] Built Bridge.Check
+✔ [13/25] Built Bridge.CSem:c.o
+✔ [14/25] Built Bridge.Check:c.o
+✔ [15/25] Built Bridge.CSyntax:c.o
+✔ [16/25] Built Bridge.Proofs
+✔ [17/25] Built Bridge.Proofs:c.o
+✔ [18/25] Built Bridge.BendLink
+✔ [19/25] Built Bridge
+✔ [21/25] Built Bridge.BendLink:c.o
+✔ [22/25] Built Bridge:c.o
+✔ [25/25] Built i8check
+
+== axiom audit (bridge/Audit.lean, one #print axioms per theorem in Proofs.lean + BendLink.lean): exit exit=0
+theorems audited: 100
+     28 [propext, Classical.choice, Quot.sound]
+     28 [propext, Quot.sound]
+     24 [propext]
+     20 does not depend on any axioms
+'Proofs.exact_gate_sound' depends on axioms: [propext, Classical.choice, Quot.sound] 'Proofs.exact_gate_zero' depends on axioms: [propext, Classical.choice, Quot.sound] 
+'Proofs.cert_loop' depends on axioms: [propext, Classical.choice, Quot.sound] 'Proofs.cert_loop_acc' depends on axioms: [propext, Quot.sound] 
+'Proofs.cert_total' depends on axioms: [propext, Classical.choice, Quot.sound] 'Proofs.cert_gate' depends on axioms: [propext, Classical.choice, Quot.sound] 
+'Proofs.cert_gate' depends on axioms: [propext, Classical.choice, Quot.sound] 'Proofs.sq_bound' depends on axioms: [propext, Quot.sound] 
+'Proofs.gate_total' depends on axioms: [propext, Classical.choice, Quot.sound] 'Proofs.exact_gate_requires_exact' depends on axioms: [propext] 
+'Link.exact_gate_bend' depends on axioms: [propext, Classical.choice, Quot.sound] 'Link.match_gate_bend_wrap' depends on axioms: [propext, Classical.choice, Quot.sound] 
+sorry/admit/native_decide/axiom scan (grep exit 1 = none found): exit=1
+
+== exit codes: 0 PASS, 1 cmp/grep differ or build fail, 2 C REJECT, 3 IR MISMATCH, 4 Bend REJECT, 5 UNCERTIFIED
+name | want | actual | verdict/reason
+emit_pos_same | 0 | 0 | 
+emit_wrap_same | 0 | 0 | 
+emit_buf_same | 0 | 0 | 
+emit_l1_same | 0 | 0 | 
+emit_l2_same | 0 | 0 | 
+emit_l2_badguard_same | 0 | 0 | 
+emit_l2_buf_same | 0 | 0 | 
+emit_l1_noabs_same | 0 | 0 | 
+pos_C_byteidentical_to_r5 | 0 | 0 | 
+kernel_copy_pos | 0 | 0 | 
+kernel_copy_wrap | 0 | 0 | 
+kernel_copy_buf | 0 | 0 | 
+kernel_copy_l1 | 0 | 0 | 
+kernel_copy_l2 | 0 | 0 | 
+bend_pos_PROOF | 0 | 0 | ALL PROOFS CHECK
+bend_l1_PROOF_RED | 0 | 0 | ALL PROOFS CHECK
+bend_l2_PROOF_RED | 0 | 0 | ALL PROOFS CHECK
+base_pinned_same | 0 | 0 | 
+translate_kernel_same | 0 | 0 | 
+translate_progs_same | 0 | 0 | 
+gate_exact_pos | 0 | 0 | VERDICT: PASS
+gate_match_pos | 0 | 0 | VERDICT: PASS
+gate_exact_l1 | 0 | 0 | VERDICT: PASS
+gate_match_l1 | 0 | 0 | VERDICT: PASS
+gate_exact_l2 | 0 | 0 | VERDICT: PASS
+gate_match_l2 | 0 | 0 | VERDICT: PASS
+gate_exact_wrap_own | 3 | 3 | VERDICT: IR MISMATCH
+gate_match_wrap_own | 0 | 0 | VERDICT: PASS
+ctl_buf_dot_r5 | 2 | 2 | REJECT: line 4: unrecognised line "#include <stdlib.h>"
+ctl_buf_l2_diffbuffer | 2 | 2 | REJECT: line 4: unrecognised line "#include <stdlib.h>"
+ctl_l2_wrong_guard_131071 | 2 | 2 | REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 33025 for this loop body (found [C.Dir.inc "stddef.h", C.Dir.inc "stdint.h", 
+ctl_l2_wrong_guard_match | 2 | 2 | REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 33025 for this loop body (found [C.Dir.inc "stddef.h", C.Dir.inc "stdint.h", 
+ctl_l2_missing_guard | 2 | 2 | REJECT: statement 0: expected `if (n > I8DOT_MAX_N) return -1;`, found `int32_t acc = 0;`
+ctl_l1_arith_signflip | 2 | 2 | REJECT: line 15: unrecognised line "if (r0 > 0) r0 = -r0;"
+ctl_l1_noabs_exact_own | 3 | 3 | VERDICT: IR MISMATCH
+ctl_l1_noabs_match_own | 5 | 5 | VERDICT: UNCERTIFIED (matching but uncertified program)
+ctl_l1_noabs_vs_l1prog | 3 | 3 | VERDICT: IR MISMATCH
+ctl_l1C_vs_l2prog | 3 | 3 | VERDICT: IR MISMATCH
+ctl_l2C_vs_l1prog | 3 | 3 | VERDICT: IR MISMATCH
+ctl_dotC_vs_l2prog | 3 | 3 | VERDICT: IR MISMATCH
+ctl_l2prog_tampered | 4 | 4 | BEND REJECT: file is not exactly the generated preamble + `def prog() -> K.Stmts:` + one term
+ctl_r5_overflow_match | 5 | 5 | VERDICT: UNCERTIFIED (matching but uncertified program)
+negB_kernel_changed | 1 | 1 | 
+negB_bend_l1_PROOF_RED_still_passes | 0 | 0 | ALL PROOFS CHECK
+negB_lean_differs | 1 | 1 | 
+negB_link_build_fails | 1 | 1 | error: ././././Bridge/BendLink.lean:94:71: omega could not prove the goal:
+native_pos_gcc__O2 | 0 | 0 | kernel=0 N=131071 runs=2045 fails=0 worst_case_N_sum=2147467264 (INT32_MAX=2147483647)
+native_pos_gcc__O3__march_native | 0 | 0 | kernel=0 N=131071 runs=2045 fails=0 worst_case_N_sum=2147467264 (INT32_MAX=2147483647)
+native_pos_clang__O3 | 0 | 0 | kernel=0 N=131071 runs=2045 fails=0 worst_case_N_sum=2147467264 (INT32_MAX=2147483647)
+native_pos_gcc__O1__fsanitize_undefined__fno_sanitize_recover_all | 0 | 0 | kernel=0 N=131071 runs=2045 fails=0 worst_case_N_sum=2147467264 (INT32_MAX=2147483647)
+native_pos_clang__O1__fsanitize_undefined__fno_sanitize_recover_all | 0 | 0 | kernel=0 N=131071 runs=2045 fails=0 worst_case_N_sum=2147467264 (INT32_MAX=2147483647)
+native_l1_gcc__O2 | 0 | 0 | kernel=1 N=8421504 runs=2045 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483647)
+native_l1_gcc__O3__march_native | 0 | 0 | kernel=1 N=8421504 runs=2045 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483647)
+native_l1_clang__O3 | 0 | 0 | kernel=1 N=8421504 runs=2045 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483647)
+native_l1_gcc__O1__fsanitize_undefined__fno_sanitize_recover_all | 0 | 0 | kernel=1 N=8421504 runs=2045 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483647)
+native_l1_clang__O1__fsanitize_undefined__fno_sanitize_recover_all | 0 | 0 | kernel=1 N=8421504 runs=2045 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483647)
+native_l2_gcc__O2 | 0 | 0 | kernel=2 N=33025 runs=2045 fails=0 worst_case_N_sum=2147450625 (INT32_MAX=2147483647)
+native_l2_gcc__O3__march_native | 0 | 0 | kernel=2 N=33025 runs=2045 fails=0 worst_case_N_sum=2147450625 (INT32_MAX=2147483647)
+native_l2_clang__O3 | 0 | 0 | kernel=2 N=33025 runs=2045 fails=0 worst_case_N_sum=2147450625 (INT32_MAX=2147483647)
+native_l2_gcc__O1__fsanitize_undefined__fno_sanitize_recover_all | 0 | 0 | kernel=2 N=33025 runs=2045 fails=0 worst_case_N_sum=2147450625 (INT32_MAX=2147483647)
+native_l2_clang__O1__fsanitize_undefined__fno_sanitize_recover_all | 0 | 0 | kernel=2 N=33025 runs=2045 fails=0 worst_case_N_sum=2147450625 (INT32_MAX=2147483647)
+
+== real Bend verdict output (tail of each raw file)
+-- bend_pos_PROOF
+ALL PROOFS CHECK
+exit=0
+-- bend_l1_PROOF_RED
+ALL PROOFS CHECK
+exit=0
+-- bend_l2_PROOF_RED
+ALL PROOFS CHECK
+exit=0
+-- negB_bend_l1_PROOF_RED_still_passes
+ALL PROOFS CHECK
+exit=0
+
+-- negB_link_build_fails (Lean link rebuilt on the mutated-zsub translation)
+error: ././././Bridge/BendLink.lean:94:71: omega could not prove the goal:
+error: Lean exited with code 1
+error: build failed
+
+== native edge tests (finite evidence; per build: n=0,1,2,N-1,N,N+1,N+2 on the 4 extreme pairs + deterministic random)
+native_l1_clang__O1__fsanitize_undefined__fno_sanitize_recover_all: kernel=1 N=8421504 runs=2045 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483647) exit=0
+native_l1_clang__O3: kernel=1 N=8421504 runs=2045 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483647) exit=0
+native_l1_gcc__O1__fsanitize_undefined__fno_sanitize_recover_all: kernel=1 N=8421504 runs=2045 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483647) exit=0
+native_l1_gcc__O2: kernel=1 N=8421504 runs=2045 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483647) exit=0
+native_l1_gcc__O3__march_native: kernel=1 N=8421504 runs=2045 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483647) exit=0
+native_l2_clang__O1__fsanitize_undefined__fno_sanitize_recover_all: kernel=2 N=33025 runs=2045 fails=0 worst_case_N_sum=2147450625 (INT32_MAX=2147483647) exit=0
+native_l2_clang__O3: kernel=2 N=33025 runs=2045 fails=0 worst_case_N_sum=2147450625 (INT32_MAX=2147483647) exit=0
+native_l2_gcc__O1__fsanitize_undefined__fno_sanitize_recover_all: kernel=2 N=33025 runs=2045 fails=0 worst_case_N_sum=2147450625 (INT32_MAX=2147483647) exit=0
+native_l2_gcc__O2: kernel=2 N=33025 runs=2045 fails=0 worst_case_N_sum=2147450625 (INT32_MAX=2147483647) exit=0
+native_l2_gcc__O3__march_native: kernel=2 N=33025 runs=2045 fails=0 worst_case_N_sum=2147450625 (INT32_MAX=2147483647) exit=0
+native_pos_clang__O1__fsanitize_undefined__fno_sanitize_recover_all: kernel=0 N=131071 runs=2045 fails=0 worst_case_N_sum=2147467264 (INT32_MAX=2147483647) exit=0
+native_pos_clang__O3: kernel=0 N=131071 runs=2045 fails=0 worst_case_N_sum=2147467264 (INT32_MAX=2147483647) exit=0
+native_pos_gcc__O1__fsanitize_undefined__fno_sanitize_recover_all: kernel=0 N=131071 runs=2045 fails=0 worst_case_N_sum=2147467264 (INT32_MAX=2147483647) exit=0
+native_pos_gcc__O2: kernel=0 N=131071 runs=2045 fails=0 worst_case_N_sum=2147467264 (INT32_MAX=2147483647) exit=0
+native_pos_gcc__O3__march_native: kernel=0 N=131071 runs=2045 fails=0 worst_case_N_sum=2147467264 (INT32_MAX=2147483647) exit=0
+pos undefined symbols: []
+l1 undefined symbols: []
+l2 undefined symbols: []
+
+== theorem path (actual names)
+exact_gate_sound (723-737) --uses--> gate_total (700-711) --per certified program--> cert_gate c (577-590)
+  --> cert_total c (546-575) --> cert_loop c (498-532, the one induction over the loop index)
+and exact values: ir_exact_run (665-673) --> cert_run c (via cert_loop_acc) + refRed_dot/l1/l2.
+wrap (match gate only) uses r5's cRun_wrap instead (line 709), not a Cert.
+== theorem path, exact source excerpts from bridge/Bridge/Proofs.lean (scratch copy)
+
+---- Proofs.lean lines 483,532
+ 483: structure Cert where
+ 484:   ops : List Op
+ 485:   N : Nat
+ 486:   M : Int
+ 487:   f : Int → Int → Int
+ 488:   hne : ops ≠ []
+ 489:   hN : (N : Int) * M ≤ 2147483647
+ 490:   hM : 0 ≤ M
+ 491:   hacc : ∀ x y t (s : IR.St), (IR.execBody ops x y t s).acc = s.acc + f x y
+ 492:   step : ∀ (x y t : Int) (s : IR.St), -128 ≤ x ∧ x ≤ 127 → -128 ≤ y ∧ y ≤ 127 → inI32 s.r1 →
+ 493:     -2147483648 ≤ s.acc - M → s.acc + M ≤ 2147483647 →
+ 494:     BodyOK ops x y t s ∧ inI32 (IR.execBody ops x y t s).r1 ∧ -M ≤ f x y ∧ f x y ≤ M
+ 495: 
+ 496: /-- the shared induction: for n ≤ N the C loop never faults and tracks the IR state; the accumulator
+ 497: after i iterations lies in [-i*M, i*M] -/
+ 498: theorem cert_loop (c : Cert) {env : Env} {out : Option Int} (ha : Admitted env) (hn : env.n ≤ c.N)
+ 499:     (ss : List S) (hro : renderOps c.ops = some ss) :
+ 500:     ∀ (k i : Nat) (st : CSt) (s : IR.St) (tin : List Int), i + k = env.n → R out st s → inI32 s.r1 →
+ 501:     -((i : Int) * c.M) ≤ s.acc → s.acc ≤ (i : Int) * c.M →
+ 502:     ∃ st', loopK env ss k i st = some st' ∧
+ 503:       R out st' (IR.runLoop c.ops ((env.a.take env.n).drop i) ((env.b.take env.n).drop i) tin s)
+ 504:   | 0, i, st, s, tin, hk, hrs, _, _, _ => by
+ 505:     have : i = env.n := by omega
+ 506:     subst this
+ 507:     refine ⟨st, by simp [loopK], ?_⟩
+ 508:     rw [drop_take_len]; simp only [IR.runLoop]; exact hrs
+ 509:   | k + 1, i, st, s, tin, hk, hrs, hr1, hl, hu => by
+ 510:     have hi : i < env.n := by omega
+ 511:     have hia : i < env.a.length := by have := ha.2.2.1; omega
+ 512:     have hib : i < env.b.length := by have := ha.2.2.2.1; omega
+ 513:     have hta : i < (env.a.take env.n).length := by simp; omega
+ 514:     have htb : i < (env.b.take env.n).length := by simp; omega
+ 515:     have hx8 := ha.1 _ (List.getElem_mem hia)
+ 516:     have hy8 := ha.2.1 _ (List.getElem_mem hib)
+ 517:     have e1 : ((i : Int) + 1) * c.M = (i : Int) * c.M + c.M := by rw [Int.add_mul, Int.one_mul]
+ 518:     have e2 : ((i : Int) + 1) * c.M ≤ (c.N : Int) * c.M := Int.mul_le_mul_of_nonneg_right (by omega) c.hM
+ 519:     have hN := c.hN
+ 520:     have hM := c.hM
+ 521:     obtain ⟨hb, hr1', hf1, hf2⟩ := c.step env.a[i] env.b[i] (IR.hd tin) s hx8 hy8 hr1 (by omega) (by omega)
+ 522:     have hacc := c.hacc env.a[i] env.b[i] (IR.hd tin) s
+ 523:     rw [List.drop_eq_getElem_cons hta, List.drop_eq_getElem_cons htb]
+ 524:     simp only [loopK, hi, if_true, IR.runLoop, List.getElem_take]
+ 525:     obtain ⟨st1, e3, r3⟩ := body_total (List.getElem?_eq_getElem hia) (List.getElem?_eq_getElem hib)
+ 526:       hx8 hy8 c.ops ss st s hro hrs hb
+ 527:     simp only [e3, Option.some_bind]
+ 528:     exact cert_loop c ha hn ss hro k (i + 1) st1 _ _ (by omega) r3 hr1' (by push_cast; omega) (by push_cast; omega)
+ 529: 
+ 530: /-- independent generic reduction reference: Σ f(a_i, b_i) over the shorter list -/
+ 531: def refRed (g : Int → Int → Int) : List Int → List Int → Int
+ 532:   | x :: xs, y :: ys => g x y + refRed g xs ys
+
+---- Proofs.lean lines 546,590
+ 546: theorem cert_total (c : Cert) (f : CFile) (hr : render [.Loop c.ops] = some f)
+ 547:     (hb : bound [.Loop c.ops] = c.N) (env : Env) (out0 : Option Int) (ha : Admitted env) :
+ 548:     cRun f env out0 = if c.N < env.n then .ret (-1) out0
+ 549:       else .ret 0 (some (refRed c.f (env.a.take env.n) (env.b.take env.n))) := by
+ 550:   have hs := sound_render _ f hr env out0 ha
+ 551:   rw [hb] at hs
+ 552:   by_cases hn : c.N < env.n
+ 553:   · simp [hn, hs.1 hn]
+ 554:   · simp only [hn, if_false]
+ 555:     obtain ⟨o, os, he⟩ : ∃ o os, c.ops = o :: os := by
+ 556:       cases h : c.ops with
+ 557:       | nil => exact absurd h c.hne
+ 558:       | cons o os => exact ⟨o, os, rfl⟩
+ 559:     cases hro : renderOps c.ops with
+ 560:     | none =>
+ 561:       rw [he] at hr hro; simp [render, mapO, renderPS, hro] at hr
+ 562:     | some ss =>
+ 563:       have hro' := hro
+ 564:       rw [he] at hr hro' hb
+ 565:       simp only [render, mapO, renderPS, hro', Option.bind_eq_bind, Option.some_bind, Option.map_eq_map,
+ 566:         Functor.map, Option.map_some', pure, Option.some.injEq] at hr
+ 567:       obtain ⟨st', h', hR⟩ := cert_loop c (out := out0) ha (by omega) ss hro env.n 0
+ 568:         ⟨some 0, some 0, some 0, out0⟩ IR.init [] (by omega) ⟨rfl, rfl, rfl, rfl⟩ (by decide) (by simp [IR.init]) (by simp [IR.init])
+ 569:       have hnf : cRun f env out0 ≠ .fault := by
+ 570:         subst hr
+ 571:         simp [cRun, prologue, epilogue, execT, lookupDef, dirsFor, hb, hn, CSt.get, CSt.set, inI32, runFor, h', hR.1]
+ 572:       rcases hs.2 (by omega) with h | h
+ 573:       · exact absurd h hnf
+ 574:       · rw [h, cert_run]
+ 575: 
+ 576: /-- C + IR in one statement for a certified program `p = [.Loop c.ops]` -/
+ 577: theorem cert_gate (c : Cert) (p : Prog) (hp : p = [.Loop c.ops]) (hb : bound p = c.N) {f : CFile}
+ 578:     (hr : render p = some f) (env : Env) (out0 : Option Int) (ha : Admitted env) :
+ 579:     cRun f env out0 = if bound p < env.n then .ret (-1) out0
+ 580:       else .ret 0 (some (IR.run p (env.a.take env.n) (env.b.take env.n)).acc) := by
+ 581:   subst hp; rw [cert_total c f hr hb env out0 ha, hb, cert_run]
+ 582: 
+ 583: theorem sq_bound (d : Int) (h : -255 ≤ d ∧ d ≤ 255) : 0 ≤ d * d ∧ d * d ≤ 65025 := by
+ 584:   obtain ⟨h1, h2⟩ := h
+ 585:   rcases Int.le_total 0 d with h0 | h0
+ 586:   · exact ⟨Int.mul_nonneg h0 h0, by have := Int.mul_le_mul h2 h2 h0 (by decide); omega⟩
+ 587:   · have h4 := Int.mul_le_mul (show -d ≤ 255 by omega) (show -d ≤ 255 by omega) (by omega) (by decide)
+ 588:     have h3 := Int.mul_nonneg (show 0 ≤ -d by omega) (show 0 ≤ -d by omega)
+ 589:     rw [Int.neg_mul_neg] at h4 h3; exact ⟨h3, by omega⟩
+ 590: 
+
+---- Proofs.lean lines 593,635
+ 593: def certDot : Cert where
+ 594:   ops := [.LdA, .LdB, .Mul, .Acc]
+ 595:   N := 131071
+ 596:   M := 16384
+ 597:   f := fun x y => x * y
+ 598:   hne := by simp
+ 599:   hN := by omega
+ 600:   hM := by omega
+ 601:   hacc := by intro x y t s; simp [IR.execBody, IR.exec]
+ 602:   step := by
+ 603:     intro x y t s hx hy hr1 h1 h2
+ 604:     have := prod_bound x y hx hy
+ 605:     simp [BodyOK, RegsOK, IR.execBody, IR.exec, exactOp, inI32] at hr1 ⊢; omega
+ 606: 
+ 607: def certL1 : Cert where
+ 608:   ops := [.LdA, .LdB, .Sub, .Abs, .Acc]
+ 609:   N := 8421504
+ 610:   M := 255
+ 611:   f := fun x y => if x - y < 0 then -(x - y) else x - y
+ 612:   hne := by simp
+ 613:   hN := by omega
+ 614:   hM := by omega
+ 615:   hacc := by intro x y t s; simp [IR.execBody, IR.exec]
+ 616:   step := by
+ 617:     intro x y t s hx hy hr1 h1 h2
+ 618:     simp only [inI32] at hr1
+ 619:     by_cases hd : x - y < 0 <;> simp [BodyOK, RegsOK, IR.execBody, IR.exec, exactOp, inI32, hd] <;> omega
+ 620: 
+ 621: def certL2 : Cert where
+ 622:   ops := [.LdA, .LdB, .Sub, .Sq, .Acc]
+ 623:   N := 33025
+ 624:   M := 65025
+ 625:   f := fun x y => (x - y) * (x - y)
+ 626:   hne := by simp
+ 627:   hN := by omega
+ 628:   hM := by omega
+ 629:   hacc := by intro x y t s; simp [IR.execBody, IR.exec]
+ 630:   step := by
+ 631:     intro x y t s hx hy hr1 h1 h2
+ 632:     have := sq_bound (x - y) (by omega)
+ 633:     simp [BodyOK, RegsOK, IR.execBody, IR.exec, exactOp, inI32] at hr1 ⊢; omega
+ 634: 
+ 635: /-- the guards are the largest n with n*M ≤ INT32_MAX for each element bound M -/
+
+---- Proofs.lean lines 665,673
+ 665: theorem ir_exact_run (p : Prog) (hp : exactCert p = true) (xs ys : List Int) :
+ 666:     (IR.run p xs ys).acc = refOf p xs ys := by
+ 667:   rcases exactCert_cases hp with rfl | rfl | rfl
+ 668:   · have e : (IR.run posIR xs ys).acc = refDot xs ys := (cert_run certDot xs ys).trans (refRed_dot xs ys)
+ 669:     rw [e]; simp [refOf, posIR, l1IR, l2IR]
+ 670:   · have e : (IR.run l1IR xs ys).acc = refL1 xs ys := (cert_run certL1 xs ys).trans (refRed_l1 xs ys)
+ 671:     rw [e]; simp [refOf]
+ 672:   · have e : (IR.run l2IR xs ys).acc = refL2 xs ys := (cert_run certL2 xs ys).trans (refRed_l2 xs ys)
+ 673:     rw [e]; simp [refOf, l1IR, l2IR]
+
+---- Proofs.lean lines 700,711
+ 700: theorem gate_total {cs bs : String} {ex : Bool} {p : Prog} (h : gate cs bs ex = .pass p) :
+ 701:     ∃ f, C.parseFile cs = .ok f ∧ BendP.parseBend bs = .ok p ∧ certified p = true ∧
+ 702:       (ex = true → exactCert p = true) ∧
+ 703:       ∀ env out0, Admitted env → cRun f env out0 = if bound p < env.n then .ret (-1) out0
+ 704:         else .ret 0 (some (IR.run p (env.a.take env.n) (env.b.take env.n)).acc) := by
+ 705:   obtain ⟨f, hf, -, hb, hr, hc, hx⟩ := gate_pass h
+ 706:   refine ⟨f, hf, hb, hc, hx, fun env out0 ha => ?_⟩
+ 707:   rcases certified_cases hc with rfl | rfl | rfl | rfl
+ 708:   · exact cert_gate certDot posIR rfl (by decide) hr env out0 ha
+ 709:   · rw [render_wrap] at hr; cases hr; rw [show bound wrapIR = 131071 by decide]; exact cRun_wrap env out0 ha
+ 710:   · exact cert_gate certL1 l1IR rfl (by decide) hr env out0 ha
+ 711:   · exact cert_gate certL2 l2IR rfl (by decide) hr env out0 ha
+
+---- Proofs.lean lines 723,737
+ 723: /-- EXACT GATE (main theorem, i8red): if `i8check exact` accepts the actual C text `cs` against the
+ 724: actual prog.bend text `bs`, then prog.bend is one of the three exact reductions (dot, L1, squared L2),
+ 725: and on every admitted input the C semantics never faults: it returns -1 leaving *out untouched when
+ 726: n > bound p (131071 / 8421504 / 33025), and otherwise returns 0 with *out = the independent exact
+ 727: reference (refDot / refL1 / refL2) of the first n elements. -/
+ 728: theorem exact_gate_sound {cs bs : String} {p : Prog} (h : gate cs bs true = .pass p) :
+ 729:     ∃ f, C.parseFile cs = .ok f ∧ BendP.parseBend bs = .ok p ∧ (p = posIR ∨ p = l1IR ∨ p = l2IR) ∧
+ 730:       ∀ env out0, Admitted env → cRun f env out0 = if bound p < env.n then .ret (-1) out0
+ 731:         else .ret 0 (some (refOf p (env.a.take env.n) (env.b.take env.n))) := by
+ 732:   obtain ⟨f, hf, hb, hc, hx, H⟩ := gate_total h
+ 733:   have he := hx rfl
+ 734:   refine ⟨f, hf, hb, exactCert_cases he, fun env out0 ha => ?_⟩
+ 735:   rw [H env out0 ha, ir_exact_run p he]
+ 736: 
+ 737: /-- n = 0 corollary: an accepted exact kernel returns 0 with *out = 0 -/
+
+== certificate selection lines (the only per-kernel choice; all three go through cert_gate -> cert_total -> cert_loop)
+668:  · have e : (IR.run posIR xs ys).acc = refDot xs ys := (cert_run certDot xs ys).trans (refRed_dot xs ys)
+670:  · have e : (IR.run l1IR xs ys).acc = refL1 xs ys := (cert_run certL1 xs ys).trans (refRed_l1 xs ys)
+672:  · have e : (IR.run l2IR xs ys).acc = refL2 xs ys := (cert_run certL2 xs ys).trans (refRed_l2 xs ys)
+708:  · exact cert_gate certDot posIR rfl (by decide) hr env out0 ha
+710:  · exact cert_gate certL1 l1IR rfl (by decide) hr env out0 ha
+711:  · exact cert_gate certL2 l2IR rfl (by decide) hr env out0 ha
+528:    exact cert_loop c ha hn ss hro k (i + 1) st1 _ _ (by omega) r3 hr1' (by push_cast; omega) (by push_cast; omega)
+567:      obtain ⟨st', h', hR⟩ := cert_loop c (out := out0) ha (by omega) ss hro env.n 0
+581:  subst hp; rw [cert_total c f hr hb env out0 ha, hb, cert_run]

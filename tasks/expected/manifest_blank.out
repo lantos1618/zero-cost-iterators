@@ -1,0 +1,4 @@
+file: tasks/fixtures/manifest_blank.txt
+read: whole file buffered and split into 3 lines before checking
+result: INVALID at line 2: expected 3 space-separated fields, got 1
+entry: 

@@ -1,0 +1,3 @@
+gendemo's ratio printer dropped leading zeros of the 4-digit fraction until fixed (e.g. 1.0003 printed "1.3",
+2.0699 printed "2.699"). Ratios with 4 printed fraction digits are correct. Corrected ratios are recomputed from
+the logged microsecond medians by records/ratios.txt; the printer is fixed for all later runs.

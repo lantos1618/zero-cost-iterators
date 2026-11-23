@@ -1,0 +1,8 @@
+file: tasks/fixtures/access.log
+lines: 11 (records: 9, skipped blank/comment: 2)
+filter: level=WARN service=* min_latency_ms=0
+matches: 1
+total_latency_ms: 95
+max_latency_ms: 95 (first at line 4)
+first: line 4 2026-03-01T09:00:09Z db /query
+last: line 4 2026-03-01T09:00:09Z db /query

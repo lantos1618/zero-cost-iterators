@@ -1,0 +1,1 @@
+{"name": "osl", "max_n": 8421504, "prog": [{"loop": ["LdA", "LdB", "Sub", "Pos", "Acc"]}]}

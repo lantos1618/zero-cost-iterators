@@ -1,0 +1,3 @@
+file: tasks/fixtures/manifest_ok.txt
+read: whole file buffered and split into 4 lines before checking
+result: OK (4 entries valid)

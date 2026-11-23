@@ -1,0 +1,1 @@
+tasks/fixtures/empty.log:1: missing header (expected 'product,qty,unit_cents,status')

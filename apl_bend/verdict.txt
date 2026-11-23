@@ -1,0 +1,2 @@
+ALL PROOFS CHECK
+exit=0

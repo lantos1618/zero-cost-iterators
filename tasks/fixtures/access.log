@@ -1,0 +1,11 @@
+# ts level service latency_ms path
+2026-03-01T09:00:00Z INFO api 12 /health
+2026-03-01T09:00:05Z ERROR api 340 /login
+2026-03-01T09:00:09Z WARN db 95 /query
+
+2026-03-01T09:01:00Z ERROR db 900 /query
+2026-03-01T09:01:30Z INFO web 20 /index
+2026-03-01T09:02:00Z ERROR api 75 /cart
+2026-03-01T09:02:10Z ERROR web 900 /checkout
+2026-03-01T09:03:00Z INFO api 18 /health
+2026-03-01T09:04:00Z ERROR api 120 /login

@@ -1,0 +1,3 @@
+file: tasks/fixtures/empty.log
+read: whole file buffered and split into 0 lines before checking
+result: OK (0 entries valid)

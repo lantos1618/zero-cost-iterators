@@ -1,0 +1,4 @@
+file: tasks/fixtures/manifest_bad.txt
+read: whole file buffered and split into 8 lines before checking
+result: INVALID at line 4: path contains '..'
+entry: assets/../secret.key 64 0badc0de

@@ -1,0 +1,1 @@
+tasks/fixtures/bad_latency.log:2: latency_ms must be decimal digits, got '3.5'

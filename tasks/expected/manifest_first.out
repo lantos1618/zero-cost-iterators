@@ -1,0 +1,4 @@
+file: tasks/fixtures/manifest_first.txt
+read: whole file buffered and split into 2 lines before checking
+result: INVALID at line 1: size has a leading zero, got '007'
+entry: docs/readme.md 007 00000000

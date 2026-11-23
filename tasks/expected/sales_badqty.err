@@ -1,0 +1,1 @@
+tasks/fixtures/sales_badqty.csv:3: qty must be decimal digits, got '-1'

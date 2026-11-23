@@ -1,0 +1,1 @@
+{"name": "ham_nosub", "max_n": 131071, "prog": [{"loop": ["LdA", "LdB", "Ne0", "Acc"]}]}

@@ -1,0 +1,8 @@
+file: tasks/fixtures/big.log
+lines: 2 (records: 2, skipped blank/comment: 0)
+filter: level=ERROR service=* min_latency_ms=0
+matches: 2
+total_latency_ms: 18446744073709551616
+max_latency_ms: 18446744073709551615 (first at line 1)
+first: line 1 2026-03-02T00:00:00Z batch /nightly
+last: line 2 2026-03-02T00:00:01Z batch /nightly

@@ -1,0 +1,10 @@
+SOME PROOFS FAIL
+Error:
+- expected : TCon{"6", TNil{}}
+- observed : TCon{"1", TCon{"3", TCon{"6", TNil{}}}}
+Location: reset_law
+279 | def reset_law():
+280>|   {==}
+    |   ^^^^
+281 | 
+Note: the left side of the equality is the expected, the right side is the observed.

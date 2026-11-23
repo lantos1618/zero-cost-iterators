@@ -1,0 +1,10 @@
+SOME PROOFS FAIL
+Error:
+- expected : "[[[|6]|3]|1]"
+- observed : "[[[|1]|3]|6]"
+Location: front_bracket_eq
+279 | def front_bracket_eq():
+280>|   {==}
+    |   ^^^^
+281 | 
+Note: the left side of the equality is the expected, the right side is the observed.

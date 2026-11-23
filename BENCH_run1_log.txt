@@ -1,0 +1,125 @@
+work/data/siftsmall_base.fvecs: OK
+work/data/siftsmall_groundtruth.ivecs: OK
+work/data/siftsmall_learn.fvecs: OK
+work/data/siftsmall_query.fvecs: OK
+work/data/siftsmall_query.fvecs: 100 rows x 128 dims, all 12800 coordinates exact integers in [0,255] (min 0 max 169)
+work/data/siftsmall_base.fvecs: 10000 rows x 128 dims, all 1280000 coordinates exact integers in [0,255] (min 0 max 180)
+work/data/siftsmall_groundtruth.ivecs: 100 rows x 100 neighbour ids in [0,10000)
+CPU(s):                                  8
+Model name:                              Intel(R) Xeon(R) Processor
+Thread(s) per core:                      1
+Linux 6.8.0-1060-aws x86_64
+gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
+Ubuntu clang version 14.0.0-1ubuntu1.1
+pinning: taskset -c 2; rounds=31
+governor: n/a
+VERDICT: PASS
+VERDICT: PASS
+VERDICT: PASS
+VERDICT: PASS
+VERDICT: PASS
+gcc_O3 dot normalized-asm gen-vs-hand: differs(56 lines; gen 174 hand 174 insns)
+gcc_O3 l1 normalized-asm gen-vs-hand: identical
+gcc_O3 l2 normalized-asm gen-vs-hand: identical
+gcc_O3 ham normalized-asm gen-vs-hand: identical
+gcc_O3 osl normalized-asm gen-vs-hand: identical
+timed gcc_O3 layout A
+timed gcc_O3 layout B
+gcc_O3marchnative dot normalized-asm gen-vs-hand: differs(58 lines; gen 202 hand 202 insns)
+gcc_O3marchnative l1 normalized-asm gen-vs-hand: identical
+gcc_O3marchnative l2 normalized-asm gen-vs-hand: identical
+gcc_O3marchnative ham normalized-asm gen-vs-hand: identical
+gcc_O3marchnative osl normalized-asm gen-vs-hand: identical
+timed gcc_O3marchnative layout A
+timed gcc_O3marchnative layout B
+clang_O3 dot normalized-asm gen-vs-hand: identical
+clang_O3 l1 normalized-asm gen-vs-hand: identical
+clang_O3 l2 normalized-asm gen-vs-hand: identical
+clang_O3 ham normalized-asm gen-vs-hand: identical
+clang_O3 osl normalized-asm gen-vs-hand: identical
+timed clang_O3 layout A
+timed clang_O3 layout B
+clang_O3marchnative dot normalized-asm gen-vs-hand: identical
+clang_O3marchnative l1 normalized-asm gen-vs-hand: identical
+clang_O3marchnative l2 normalized-asm gen-vs-hand: identical
+clang_O3marchnative ham normalized-asm gen-vs-hand: identical
+clang_O3marchnative osl normalized-asm gen-vs-hand: identical
+timed clang_O3marchnative layout A
+timed clang_O3marchnative layout B
+correct dot: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=1339476007622
+correct l1: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=4184838222
+correct l2: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=299992732756
+correct ham: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=117675068
+correct osl: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=2058208211
+l2 vs published: top1 ordered 100/100, top10 ordered 100/100, top100 tie-aware distances 100/100, top100 identical ordered ids (index tie-break) 91/100
+cfg layout kernel | gen median [IQR] (min-max) ms | hand median [IQR] (min-max) ms | ratio | signed% | strict
+gcc_O3             A dot  | 14.131 [0.814] (13.687-24.038) | 13.940 [0.386] (13.671-29.165) | 1.0137 | +1.37% | PASS
+gcc_O3             A l1   | 16.857 [0.893] (16.473-42.312) | 16.896 [1.434] (16.566-36.605) | 0.9977 | -0.23% | PASS
+gcc_O3             A l2   | 9.159 [0.273] (8.946-28.727) | 9.108 [0.360] (8.897-19.178) | 1.0055 | +0.55% | PASS
+gcc_O3             A ham  | 9.159 [0.459] (8.912-19.105) | 9.101 [0.274] (8.909-19.205) | 1.0063 | +0.63% | PASS
+gcc_O3             A osl  | 15.065 [0.496] (14.815-24.964) | 15.022 [0.470] (14.791-35.133) | 1.0028 | +0.28% | PASS
+gcc_O3             B dot  | 14.168 [1.028] (13.979-18.087) | 14.333 [0.845] (13.994-19.004) | 0.9885 | -1.15% | PASS
+gcc_O3             B l1   | 16.934 [1.260] (16.705-26.327) | 17.006 [0.438] (16.745-31.372) | 0.9958 | -0.42% | PASS
+gcc_O3             B l2   | 9.479 [0.644] (9.239-16.529) | 9.471 [0.838] (9.272-13.340) | 1.0008 | +0.08% | PASS
+gcc_O3             B ham  | 9.492 [0.623] (9.323-15.155) | 9.466 [0.456] (9.322-19.837) | 1.0027 | +0.27% | PASS
+gcc_O3             B osl  | 15.307 [0.526] (15.063-18.319) | 15.383 [0.406] (15.069-20.662) | 0.9951 | -0.49% | PASS
+clang_O3           A dot  | 23.051 [0.225] (22.778-24.011) | 23.069 [0.254] (22.874-23.587) | 0.9992 | -0.08% | PASS
+clang_O3           A l1   | 32.252 [0.406] (31.891-33.035) | 32.191 [0.236] (31.906-37.120) | 1.0019 | +0.19% | PASS
+clang_O3           A l2   | 36.746 [0.556] (36.448-40.178) | 36.681 [0.440] (36.432-38.181) | 1.0018 | +0.18% | PASS
+clang_O3           A ham  | 18.455 [0.190] (18.234-20.956) | 18.373 [0.275] (18.236-21.881) | 1.0045 | +0.45% | PASS
+clang_O3           A osl  | 29.024 [0.267] (28.745-29.817) | 29.049 [0.198] (28.761-29.883) | 0.9992 | -0.08% | PASS
+clang_O3           B dot  | 23.233 [0.240] (22.973-25.771) | 23.153 [0.275] (22.938-26.568) | 1.0034 | +0.34% | PASS
+clang_O3           B l1   | 32.275 [0.414] (31.914-37.980) | 32.269 [0.290] (31.927-38.092) | 1.0002 | +0.02% | PASS
+clang_O3           B l2   | 36.914 [0.368] (36.451-41.176) | 36.856 [0.447] (36.458-39.475) | 1.0016 | +0.16% | PASS
+clang_O3           B ham  | 18.607 [0.283] (18.485-21.056) | 18.626 [0.248] (18.481-21.336) | 0.9989 | -0.11% | PASS
+clang_O3           B osl  | 29.118 [0.408] (28.799-36.133) | 29.145 [0.415] (28.791-31.483) | 0.9991 | -0.09% | PASS
+clang_O3marchnative A dot  | 9.500 [0.077] (9.351-11.569) | 9.511 [0.178] (9.334-10.831) | 0.9989 | -0.11% | PASS
+clang_O3marchnative A l1   | 9.223 [0.136] (9.098-11.548) | 9.229 [0.180] (9.101-9.610) | 0.9994 | -0.06% | PASS
+clang_O3marchnative A l2   | 10.654 [0.166] (10.523-12.141) | 10.686 [0.143] (10.517-11.902) | 0.9970 | -0.30% | PASS
+clang_O3marchnative A ham  | 8.661 [0.124] (8.524-9.290) | 8.641 [0.131] (8.515-10.197) | 1.0023 | +0.23% | PASS
+clang_O3marchnative A osl  | 9.151 [0.122] (8.992-11.188) | 9.119 [0.117] (8.992-11.010) | 1.0035 | +0.35% | PASS
+clang_O3marchnative B dot  | 9.770 [0.130] (9.661-11.763) | 9.741 [0.139] (9.645-11.199) | 1.0030 | +0.30% | PASS
+clang_O3marchnative B l1   | 9.477 [0.104] (9.395-9.794) | 9.492 [0.097] (9.397-9.871) | 0.9984 | -0.16% | PASS
+clang_O3marchnative B l2   | 10.971 [0.157] (10.842-11.505) | 10.962 [0.139] (10.831-12.192) | 1.0008 | +0.08% | PASS
+clang_O3marchnative B ham  | 9.155 [0.114] (9.087-9.574) | 9.186 [0.115] (9.092-9.465) | 0.9966 | -0.34% | PASS
+clang_O3marchnative B osl  | 9.410 [0.119] (9.303-9.639) | 9.417 [0.092] (9.306-10.482) | 0.9993 | -0.07% | PASS
+gcc_O3marchnative  A dot  | 12.449 [0.108] (12.347-13.061) | 12.426 [0.156] (12.335-14.044) | 1.0018 | +0.18% | PASS
+gcc_O3marchnative  A l1   | 12.423 [0.104] (12.320-12.955) | 12.414 [0.076] (12.321-12.859) | 1.0008 | +0.08% | PASS
+gcc_O3marchnative  A l2   | 6.445 [0.128] (6.386-7.061) | 6.468 [0.109] (6.373-7.304) | 0.9964 | -0.36% | PASS
+gcc_O3marchnative  A ham  | 9.413 [0.119] (9.348-10.925) | 9.416 [0.091] (9.341-10.938) | 0.9997 | -0.03% | PASS
+gcc_O3marchnative  A osl  | 12.418 [0.168] (12.319-13.547) | 12.438 [0.098] (12.332-13.010) | 0.9984 | -0.16% | PASS
+gcc_O3marchnative  B dot  | 12.531 [0.151] (12.402-15.442) | 12.471 [0.174] (12.331-14.918) | 1.0048 | +0.48% | PASS
+gcc_O3marchnative  B l1   | 12.467 [0.128] (12.381-15.001) | 12.477 [0.159] (12.336-14.178) | 0.9992 | -0.08% | PASS
+gcc_O3marchnative  B l2   | 6.447 [0.204] (6.298-7.119) | 6.456 [0.186] (6.287-7.057) | 0.9985 | -0.15% | PASS
+gcc_O3marchnative  B ham  | 9.422 [0.037] (9.340-10.005) | 9.437 [0.116] (9.316-9.696) | 0.9984 | -0.16% | PASS
+gcc_O3marchnative  B osl  | 12.500 [0.193] (12.391-15.106) | 12.485 [0.180] (12.340-15.147) | 1.0012 | +0.12% | PASS
+
+per-config verdict (layout-sensitive = passes in one layout only):
+gcc_O3             dot  A=PASS B=PASS
+gcc_O3             l1   A=PASS B=PASS
+gcc_O3             l2   A=PASS B=PASS
+gcc_O3             ham  A=PASS B=PASS
+gcc_O3             osl  A=PASS B=PASS
+gcc_O3             10/10 kernel-layout cells within 5%
+clang_O3           dot  A=PASS B=PASS
+clang_O3           l1   A=PASS B=PASS
+clang_O3           l2   A=PASS B=PASS
+clang_O3           ham  A=PASS B=PASS
+clang_O3           osl  A=PASS B=PASS
+clang_O3           10/10 kernel-layout cells within 5%
+clang_O3marchnative dot  A=PASS B=PASS
+clang_O3marchnative l1   A=PASS B=PASS
+clang_O3marchnative l2   A=PASS B=PASS
+clang_O3marchnative ham  A=PASS B=PASS
+clang_O3marchnative osl  A=PASS B=PASS
+clang_O3marchnative 10/10 kernel-layout cells within 5%
+gcc_O3marchnative  dot  A=PASS B=PASS
+gcc_O3marchnative  l1   A=PASS B=PASS
+gcc_O3marchnative  l2   A=PASS B=PASS
+gcc_O3marchnative  ham  A=PASS B=PASS
+gcc_O3marchnative  osl  A=PASS B=PASS
+gcc_O3marchnative  10/10 kernel-layout cells within 5%
+
+ratio range over all configs: 0.9885 .. 1.0137
+PRIMARY (gcc -O3, both layouts) ALL-FIVE 5% TARGET: MET
+BENCH_EXIT=0

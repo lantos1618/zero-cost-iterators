@@ -1,0 +1,8 @@
+file: tasks/fixtures/access.log
+lines: 11 (records: 9, skipped blank/comment: 2)
+filter: level=ERROR service=api min_latency_ms=100
+matches: 2
+total_latency_ms: 460
+max_latency_ms: 340 (first at line 3)
+first: line 3 2026-03-01T09:00:05Z api /login
+last: line 11 2026-03-01T09:04:00Z api /login

@@ -1,0 +1,1 @@
+tasks/fixtures/bad_level.log:2: level must be INFO, WARN or ERROR, got 'ERR'

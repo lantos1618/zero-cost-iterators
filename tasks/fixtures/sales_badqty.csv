@@ -1,0 +1,3 @@
+product,qty,unit_cents,status
+apple,3,125,paid
+pear,-1,240,paid

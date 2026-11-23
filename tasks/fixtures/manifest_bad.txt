@@ -1,0 +1,8 @@
+assets/logo.png 2048 9f86d081
+assets/fonts/inter.woff2 51200 3a7bd3e2
+docs/readme.md 0 00000000
+assets/../secret.key 64 0badc0de
+bin/tool 1048576 DEADBEEF
+☃ ünïcödé — garbage ✓✓✓
+/etc/passwd 1 00000000
+x

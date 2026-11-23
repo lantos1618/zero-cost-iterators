@@ -1,0 +1,9 @@
+.lake/
+results_i8red*/
+vwtest_out/
+bendlink/base.bend.pinned
+bench/work/
+*.olean
+*.ilean
+__pycache__/
+*.pyc

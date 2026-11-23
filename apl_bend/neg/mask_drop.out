@@ -1,0 +1,13 @@
+SOME PROOFS FAIL
+Error:
+- expected : {msum(t, acc) == sumL(compress(t), Nat.add(acc, y)) : Nat}
+- observed : {msum(t, Nat.add(acc, y)) == sumL(compress(t), Nat.add(acc, y)) : Nat}
+Context:
+- y   : Nat
+- t   : MP
+- acc : Nat
+Location: mask_sum
+88 |         case True{}:
+89>|           mask_sum(t, Nat.add(acc, y))
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+90 |         case False{}:

@@ -1,0 +1,7 @@
+file: tasks/fixtures/sales.csv
+rows: 9 (kept: 3; filter: status=paid min_qty=2)
+product,lines,units,revenue_cents,revenue
+apple,1,3,375,3.75
+pear,1,4,920,9.20
+fig,1,2,700,7.00
+TOTAL,3,9,1995,19.95

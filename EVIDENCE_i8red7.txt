@@ -1,0 +1,1929 @@
+i8red7 EVIDENCE (plain text). Generated 2026-11-22T02:56:01Z on Linux 6.8.0-1060-aws x86_64.
+
+######## 0. preservation
+a6bec0144873b87059487f527e7f4912c5f20bcd67efea1b0256c90c8a81f3d7  /home/ubuntu/i8dot-bend-r5.tar.gz
+1ddc929368450d787fdc542da255557530ee81ad04adb31e5e2e83a53a4b1b11  /home/ubuntu/sift-i8dot-replay-v2.tar.gz
+files under ~/i8red6 ~/i8red5 ~/i8red ~/i8dot-bend-r5 ~/sift-i8dot-v2 newer than i8red6/EVIDENCE_i8red6.txt: 0
+
+######## 1. the five chains + renamed + controls (bridge/Pipe/Chains.lean)
+import Pipe.Core
+/-! The five user-facing source chains (plus one renamed, name-blind example). -/
+open Pipe
+
+namespace Chains
+
+def dot : Reduced := BytePairs.loop multiply |>.loop sum
+def l1  : Reduced := BytePairs.loop subtract |>.loop abs |>.loop sum
+def l2  : Reduced := BytePairs.loop subtract |>.loop square |>.loop sum
+def ham : Reduced := BytePairs.loop subtract |>.loop nonzero |>.loop sum
+def osl : Reduced := BytePairs.loop subtract |>.loop clampNeg |>.loop sum
+
+/-- name-blind: unrelated name and stage aliases; lowers to the same loop as `l1` -/
+def minus := subtract
+def magnitude := Pipe.abs
+def qz7 : Reduced := BytePairs.loop minus |>.loop magnitude |>.loop sum
+
+/-! well-typed edits whose lowered program or meaning changes (controls) -/
+def l1_drop_abs    : Reduced := BytePairs.loop subtract |>.loop sum
+def l1_abs_to_sq   : Reduced := BytePairs.loop subtract |>.loop square |>.loop sum
+def l1_extra_sq    : Reduced := BytePairs.loop subtract |>.loop abs |>.loop square |>.loop sum
+def dot_to_sub     : Reduced := BytePairs.loop subtract |>.loop sum
+def dot_extra_abs  : Reduced := BytePairs.loop multiply |>.loop abs |>.loop sum
+def ham_swap_order : Reduced := BytePairs.loop subtract |>.loop abs |>.loop nonzero |>.loop sum
+def ham_mul_zip    : Reduced := BytePairs.loop multiply |>.loop nonzero |>.loop sum
+def osl_to_abs     : Reduced := BytePairs.loop subtract |>.loop abs |>.loop sum
+def osl_twice      : Reduced := BytePairs.loop subtract |>.loop clampNeg |>.loop clampNeg |>.loop sum
+def l2_to_mul      : Reduced := BytePairs.loop multiply |>.loop square |>.loop sum
+
+end Chains
+
+######## 2. front door, denotation, lowering, guard, theorems (bridge/Pipe/Core.lean, full)
+import Bridge.Proofs
+/-! Fluent staged front door: `BytePairs.loop zip |>.loop map* |>.loop reduce`.
+The supported "functions" are this closed set of stage descriptions (not arbitrary callbacks). -/
+open IR
+
+namespace Pipe
+
+/-- pair-combining stage: (signed byte, signed byte) → element -/
+inductive ZipFn | multiply | subtract deriving DecidableEq, Repr
+/-- element → element stage -/
+inductive MapFn | abs | square | nonzero | clampNeg deriving DecidableEq, Repr
+/-- terminal reduction -/
+inductive RedFn | sum deriving DecidableEq, Repr
+
+/-- the source: n readable signed-byte pairs (a[i], b[i]) -/
+structure Pairs where
+  deriving Repr
+/-- after the zip stage and zero or more map stages, in application order -/
+structure Elems where
+  z : ZipFn
+  ms : List MapFn
+  deriving DecidableEq, Repr
+/-- a terminated chain; it has no `.loop`, so nothing may follow the reduction -/
+structure Reduced where
+  e : Elems
+  r : RedFn
+  deriving DecidableEq, Repr
+
+def BytePairs : Pairs := {}
+def multiply : ZipFn := .multiply
+def subtract : ZipFn := .subtract
+def abs : MapFn := .abs
+def square : MapFn := .square
+def nonzero : MapFn := .nonzero
+def clampNeg : MapFn := .clampNeg
+def sum : RedFn := .sum
+
+/-- the typing of stage composition: which stage kind may follow which chain kind -/
+class LoopStage (σ τ : Type) (ρ : outParam Type) where
+  step : σ → τ → ρ
+instance : LoopStage Pairs ZipFn Elems := ⟨fun _ z => ⟨z, []⟩⟩
+instance : LoopStage Elems MapFn Elems := ⟨fun e m => ⟨e.z, e.ms ++ [m]⟩⟩
+instance : LoopStage Elems RedFn Reduced := ⟨fun e r => ⟨e, r⟩⟩
+
+def Pairs.loop {τ ρ : Type} [LoopStage Pairs τ ρ] (p : Pairs) (s : τ) : ρ := LoopStage.step p s
+def Elems.loop {τ ρ : Type} [LoopStage Elems τ ρ] (e : Elems) (s : τ) : ρ := LoopStage.step e s
+
+/-! ## Source denotation: ordered zip, then each map as a whole-list pass, then a left fold. -/
+def ZipFn.den : ZipFn → Int → Int → Int
+  | .multiply, x, y => x * y
+  | .subtract, x, y => x - y
+def MapFn.den : MapFn → Int → Int
+  | .abs, v => (v.natAbs : Int)
+  | .square, v => v * v
+  | .nonzero, v => if v = 0 then 0 else 1
+  | .clampNeg, v => max v 0
+def RedFn.den : RedFn → List Int → Int
+  | .sum, l => l.foldl (· + ·) 0
+def Elems.den (e : Elems) (xs ys : List Int) : List Int :=
+  e.ms.foldl (fun l m => l.map m.den) ((List.zip xs ys).map fun p => e.z.den p.1 p.2)
+def Reduced.den (r : Reduced) (xs ys : List Int) : Int := r.r.den (r.e.den xs ys)
+
+/-! ## Lowering: traverse the supplied stages, in order, into one loop body. -/
+def ZipFn.op : ZipFn → Op | .multiply => .Mul | .subtract => .Sub
+def MapFn.op : MapFn → Op | .abs => .AbsT | .square => .Sq | .nonzero => .Ne0 | .clampNeg => .Pos
+def RedFn.op : RedFn → Op | .sum => .Acc
+def Reduced.body (r : Reduced) : List Op := [.LdA, .LdB, r.e.z.op] ++ r.e.ms.map MapFn.op ++ [r.r.op]
+def lower (r : Reduced) : Prog := [.Loop r.body]
+
+/-! ## Guard derivation from bounded stage effects (interval analysis over int8 inputs).
+Not trusted for safety: the gate re-checks the emitted guard against the proved `Check.bound`. -/
+structure Iv where
+  lo : Int
+  hi : Int
+  deriving Repr
+def ZipFn.iv : ZipFn → Iv
+  | .multiply => let c := [(-128) * (-128), (-128) * 127, 127 * (-128), 127 * 127]
+                 ⟨c.foldl min 0, c.foldl max 0⟩
+  | .subtract => ⟨-128 - 127, 127 - (-128)⟩
+def MapFn.iv : MapFn → Iv → Iv
+  | .abs, ⟨l, h⟩ => ⟨if 0 ≤ l then l else if h ≤ 0 then -h else 0, max (l.natAbs : Int) (h.natAbs : Int)⟩
+  | .square, ⟨l, h⟩ => ⟨if 0 ≤ l then l * l else if h ≤ 0 then h * h else 0, max (l * l) (h * h)⟩
+  | .nonzero, ⟨l, h⟩ => ⟨if 0 < l ∨ h < 0 then 1 else 0, if l = 0 ∧ h = 0 then 0 else 1⟩
+  | .clampNeg, ⟨l, h⟩ => ⟨max l 0, max h 0⟩
+def Elems.iv (e : Elems) : Iv := e.ms.foldl (fun i m => m.iv i) e.z.iv
+/-- largest n with n · max|element| ≤ INT32_MAX -/
+def Reduced.guard (r : Reduced) : Nat :=
+  let i := r.e.iv
+  let m := max i.lo.natAbs i.hi.natAbs
+  if m = 0 then 2147483647 else 2147483647 / m
+
+/-! ## Proofs: chain denotation = fused IR execution (all Int inputs, no bounds needed) -/
+def Elems.pt (e : Elems) (x y : Int) : Int := e.ms.foldl (fun v m => m.den v) (e.z.den x y)
+
+theorem ir_execBody_append (x y t : Int) : ∀ (l1 l2 : List Op) (s : St),
+    execBody (l1 ++ l2) x y t s = execBody l2 x y t (execBody l1 x y t s)
+  | [], _, _ => rfl
+  | o :: r, l2, s => ir_execBody_append x y t r l2 (exec o x y t s)
+
+theorem map_exec (m : MapFn) (x y t : Int) (s : St) :
+    exec m.op x y t s = { s with r0 := m.den s.r0 } := by
+  cases m <;> simp only [MapFn.op, MapFn.den, exec]
+  · congr 1; split <;> omega
+  · congr 1; rw [Int.max_def]; split <;> split <;> omega
+
+theorem maps_exec (x y t : Int) : ∀ (ms : List MapFn) (s : St),
+    execBody (ms.map MapFn.op) x y t s = { s with r0 := ms.foldl (fun v m => m.den v) s.r0 }
+  | [], s => rfl
+  | m :: ms, s => by
+    simp only [List.map_cons, execBody, map_exec, maps_exec x y t ms, List.foldl_cons]
+
+theorem body_exec (r : Reduced) (x y t : Int) (s : St) :
+    execBody r.body x y t s = { s with r0 := r.e.pt x y, r1 := y, acc := s.acc + r.e.pt x y } := by
+  obtain ⟨⟨z, ms⟩, red⟩ := r
+  cases red
+  simp only [Reduced.body, ir_execBody_append, maps_exec]
+  cases z <;> simp [execBody, exec, ZipFn.op, RedFn.op, Elems.pt, ZipFn.den]
+
+theorem loop_acc (r : Reduced) : ∀ (xs ys tin : List Int) (s : St),
+    (runLoop r.body xs ys tin s).acc = ((List.zip xs ys).map fun p => r.e.pt p.1 p.2).foldl (· + ·) s.acc
+  | [], _, _, _ => by simp [runLoop]
+  | _ :: _, [], _, _ => by simp [runLoop]
+  | x :: xs, y :: ys, tin, s => by
+    simp only [runLoop, List.zip_cons_cons, List.map_cons, List.foldl_cons]
+    rw [loop_acc r xs ys (tl tin), body_exec]
+
+theorem maps_pointwise (L : List (Int × Int)) : ∀ (ms : List MapFn) (f : Int × Int → Int),
+    ms.foldl (fun l m => l.map m.den) (L.map f) = L.map (fun p => ms.foldl (fun v m => m.den v) (f p))
+  | [], f => rfl
+  | m :: ms, f => by
+    simp only [List.foldl_cons, List.map_map]
+    exact maps_pointwise L ms (m.den ∘ f)
+
+theorem den_pointwise (e : Elems) (xs ys : List Int) :
+    e.den xs ys = (List.zip xs ys).map fun p => e.pt p.1 p.2 := maps_pointwise _ e.ms _
+
+/-- FUSION: the staged zip/map/reduce denotation equals the one-loop IR result, same left-to-right order -/
+theorem fusion (r : Reduced) (xs ys : List Int) : (IR.run (lower r) xs ys).acc = r.den xs ys := by
+  obtain ⟨e, red⟩ := r
+  cases red
+  simp only [lower, IR.run, runProg, start, IR.init]
+  rw [loop_acc]
+  simp [Reduced.den, RedFn.den, den_pointwise]
+
+/-- lowering adds no buffer, allocation, wrap or adapter: one loop over the supported op set -/
+def fusedOps : List Op := [.LdA, .LdB, .Mul, .Sub, .AbsT, .Sq, .Ne0, .Pos, .Acc]
+
+theorem lower_fused (r : Reduced) :
+    lower r = [.Loop r.body] ∧ (∀ o ∈ r.body, o ∈ fusedOps) ∧
+    PS.Alloc ∉ lower r ∧ Op.StT ∉ r.body ∧ Op.LdT ∉ r.body ∧ Op.Wrap ∉ r.body := by
+  obtain ⟨⟨z, ms⟩, red⟩ := r
+  have hm : ∀ m : MapFn, m.op ∈ fusedOps := by intro m; cases m <;> decide
+  have hz : ∀ z : ZipFn, z.op ∈ fusedOps := by intro z; cases z <;> decide
+  have hr : ∀ r : RedFn, r.op ∈ fusedOps := by intro r; cases r; decide
+  have hall : ∀ o ∈ (Reduced.body ⟨⟨z, ms⟩, red⟩), o ∈ fusedOps := by
+    intro o ho
+    simp only [Reduced.body, List.mem_append, List.mem_cons, List.mem_map, List.not_mem_nil] at ho
+    rcases ho with ((h | h | h | h) | ⟨m, _, rfl⟩) | h | h
+    all_goals first | (subst h; first | decide | exact hz _ | exact hr _) | exact hm _ | exact absurd h id
+  refine ⟨rfl, hall, by simp [lower], ?_, ?_, ?_⟩ <;> intro h <;>
+    have := hall _ h <;> revert this <;> decide
+
+/-! ## End-to-end: a PASS of the exact gate on files whose term is `lower r` gives the chain's meaning -/
+open Check C Proofs in
+theorem chain_gate_sound (r : Reduced) {cs bs : String} (h : gate cs bs true = .pass (lower r)) :
+    ∃ f, C.parseFile cs = .ok f ∧ BendP.parseBend bs = .ok (lower r) ∧
+      ∀ env out0, Admitted env → cRun f env out0 = if bound (lower r) < env.n then .ret (-1) out0
+        else .ret 0 (some (r.den (env.a.take env.n) (env.b.take env.n))) := by
+  obtain ⟨f, hf, hb, hc, H⟩ := exact_gate_sound h
+  have he : exactCert (lower r) = true := by
+    rcases hc with h | h | h | h | h <;> rw [h] <;> decide
+  refine ⟨f, hf, hb, fun env out0 ha => ?_⟩
+  rw [H env out0 ha, ← ir_exact_run _ he, fusion]
+
+end Pipe
+
+######## 3. per-chain facts (bridge/Pipe/Facts.lean, full)
+import Pipe.Chains
+import Pipe.Emit
+/-! Per-chain facts, all by kernel `decide` or `rfl`. -/
+open IR Check Pipe Chains Proofs
+
+namespace Facts
+/-- lowering the five chains yields exactly the certified one-loop programs -/
+theorem lower_dot : lower dot = posIR := rfl
+theorem lower_l1 : lower l1 = l1IR := rfl
+theorem lower_l2 : lower l2 = l2IR := rfl
+theorem lower_ham : lower ham = hamIR := rfl
+theorem lower_osl : lower osl = oslIR := rfl
+theorem lower_qz7 : lower qz7 = lower l1 := rfl
+/-- the stage-effect guard equals the checker's proved tight bound for each lowered program -/
+theorem guard_dot : dot.guard = bound (lower dot) := by decide
+theorem guard_l1 : l1.guard = bound (lower l1) := by decide
+theorem guard_l2 : l2.guard = bound (lower l2) := by decide
+theorem guard_ham : ham.guard = bound (lower ham) := by decide
+theorem guard_osl : osl.guard = bound (lower osl) := by decide
+/-- chain meaning = independent references, for all integer lists (via fusion + shared induction) -/
+theorem den_dot (xs ys : List Int) : dot.den xs ys = refDot xs ys := by
+  rw [← fusion, lower_dot, ir_exact_run posIR (by decide)]; simp [refOf, posIR, l1IR, l2IR, hamIR, oslIR]
+theorem den_l1 (xs ys : List Int) : l1.den xs ys = refL1 xs ys := by
+  rw [← fusion, lower_l1, ir_exact_run l1IR (by decide)]; simp [refOf]
+theorem den_l2 (xs ys : List Int) : l2.den xs ys = refL2 xs ys := by
+  rw [← fusion, lower_l2, ir_exact_run l2IR (by decide)]; simp [refOf, l1IR, l2IR]
+theorem den_ham (xs ys : List Int) : ham.den xs ys = refHam xs ys := by
+  rw [← fusion, lower_ham, ir_exact_run hamIR (by decide)]; simp [refOf, l1IR, l2IR, hamIR]
+theorem den_osl (xs ys : List Int) : osl.den xs ys = refOsl xs ys := by
+  rw [← fusion, lower_osl, ir_exact_run oslIR (by decide)]; simp [refOf, l1IR, l2IR, hamIR, oslIR]
+/-- a different valid chain is a different meaning, not a corruption of the same one -/
+theorem l1_abs_to_sq_differs : l1_abs_to_sq.den [0] [2] ≠ l1.den [0] [2] := by decide
+theorem osl_to_abs_differs : osl_to_abs.den [0] [2] ≠ osl.den [0] [2] := by decide
+theorem l1_drop_abs_differs : l1_drop_abs.den [0] [2] ≠ l1.den [0] [2] := by decide
+/-- semantically equal to `ham`, but a different (uncertified) lowered program -/
+theorem ham_swap_same_meaning (xs ys : List Int) : ham_swap_order.den xs ys = ham.den xs ys := by
+  simp only [Reduced.den, den_pointwise, Elems.pt]; congr 2; funext p
+  simp [ham_swap_order, ham, Pipe.abs, nonzero, subtract, LoopStage.step, Elems.loop, Pairs.loop, MapFn.den, ZipFn.den]
+  split <;> omega
+theorem ham_swap_lowers_differently : lower ham_swap_order ≠ lower ham := by decide
+end Facts
+
+######## 4. generated Bend files -> chain meaning (bridge/Pipe/GenLink.lean, full)
+import Bridge
+import Pipe.Chains
+import Pipe.BendGen
+/-! Actual pipegen-emitted prog.bend files (translated by the trusted bend2lean.py) → chain meaning. -/
+open IR Check Pipe Chains Link
+
+namespace GenLink
+
+/-- any Bend program whose decoded term is `lower r` computes the chain's staged meaning -/
+theorem bend_chain (q : BK.Stmts) (r : Reduced) (hq : stmtsv q = lower r) (xs ys : BK.Zs) :
+    zv (BK.acc_of (BK.run q xs ys)) = r.den (zsv xs) (zsv ys) := by
+  rw [acc_of_v, run_v, hq, fusion]
+
+theorem bend_chain_ints (q : BK.Stmts) (r : Reduced) (hq : stmtsv q = lower r) (a b : List Int) :
+    zv (BK.acc_of (BK.run q (encs a) (encs b))) = r.den a b := by
+  rw [bend_chain q r hq, zsv_encs, zsv_encs]
+
+/-- ... and executes no buffer operation -/
+theorem chain_run_nobuf (r : Reduced) (xs ys : List Int) : (IR.run (lower r) xs ys).mats = 0 := by
+  simp only [lower, IR.run, runProg, start, IR.init]
+  exact ir_loop_mats _ (lower_fused r).2.2.2.1 _ _ _ _
+
+theorem bend_chain_nobuf (q : BK.Stmts) (r : Reduced) (hq : stmtsv q = lower r) (xs ys : BK.Zs) :
+    BK.mats_of (BK.run q xs ys) = 0 := by
+  rw [mats_of_v, run_v, hq, chain_run_nobuf]
+
+/-- each generated prog.bend decodes to its chain's lowering -/
+theorem gen_dot_term : stmtsv BK.P_gdot.prog = lower dot := rfl
+theorem gen_l1_term : stmtsv BK.P_gl1.prog = lower l1 := rfl
+theorem gen_l2_term : stmtsv BK.P_gl2.prog = lower l2 := rfl
+theorem gen_ham_term : stmtsv BK.P_gham.prog = lower ham := rfl
+theorem gen_osl_term : stmtsv BK.P_gosl.prog = lower osl := rfl
+theorem gen_qz7_term : stmtsv BK.P_gqz7.prog = lower qz7 := rfl
+/-- the generated Bend terms are the i8red6 terms (same Bend term; only the provenance comment differs) -/
+theorem gen_same_terms : BK.P_gdot.prog = BK.P_pos.prog ∧ BK.P_gl1.prog = BK.P_l1.prog ∧
+    BK.P_gl2.prog = BK.P_l2.prog ∧ BK.P_gham.prog = BK.P_ham.prog ∧ BK.P_gosl.prog = BK.P_osl.prog ∧
+    BK.P_gqz7.prog = BK.P_l1.prog := ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+/-- per-file instances: the actual generated Bend program computes the chain meaning, for all int lists -/
+theorem gen_dot_den (a b : List Int) : zv (BK.acc_of (BK.run BK.P_gdot.prog (encs a) (encs b))) = dot.den a b :=
+  bend_chain_ints _ _ gen_dot_term a b
+theorem gen_l1_den (a b : List Int) : zv (BK.acc_of (BK.run BK.P_gl1.prog (encs a) (encs b))) = l1.den a b :=
+  bend_chain_ints _ _ gen_l1_term a b
+theorem gen_l2_den (a b : List Int) : zv (BK.acc_of (BK.run BK.P_gl2.prog (encs a) (encs b))) = l2.den a b :=
+  bend_chain_ints _ _ gen_l2_term a b
+theorem gen_ham_den (a b : List Int) : zv (BK.acc_of (BK.run BK.P_gham.prog (encs a) (encs b))) = ham.den a b :=
+  bend_chain_ints _ _ gen_ham_term a b
+theorem gen_osl_den (a b : List Int) : zv (BK.acc_of (BK.run BK.P_gosl.prog (encs a) (encs b))) = osl.den a b :=
+  bend_chain_ints _ _ gen_osl_term a b
+theorem gen_qz7_den (a b : List Int) : zv (BK.acc_of (BK.run BK.P_gqz7.prog (encs a) (encs b))) = qz7.den a b :=
+  bend_chain_ints _ _ gen_qz7_term a b
+
+end GenLink
+
+######## 5. emitter (bridge/Pipe/Emit.lean, full)
+import Pipe.Core
+/-! Emitter (TRUSTED text printer, re-checked by the exact gate): lowered program → i8dot.c, prog.bend.
+Each loop line is the checker-table line whose parse is exactly the op's rendered C statement. -/
+open IR C Check
+
+namespace Pipe
+
+def lineOf (s : S) : Option String :=
+  tableLines.find? fun l => match lineItem l with
+    | some (.stmt t) => decide (t.toS = some s)
+    | _ => false
+
+def opLines (o : Op) : Option (List String) := do
+  let ss ← opS o
+  mapO lineOf ss
+
+def emitC (label : String) (r : Reduced) : Option String := do
+  let ls ← mapO opLines r.body
+  let L := [s!"/* emitted by pipegen from chain {label} -- do not edit */",
+    "#include <stddef.h>", "#include <stdint.h>", s!"#define I8DOT_MAX_N {r.guard}u", "",
+    "int i8dot(const int8_t *a, const int8_t *b, size_t n, int32_t *out) {",
+    "  if (n > I8DOT_MAX_N) return -1;",
+    "  int32_t acc = 0;", "  int32_t r0 = 0;", "  int32_t r1 = 0;",
+    "  for (size_t i = 0; i < n; i++) {"] ++ (ls.flatten.map ("    " ++ ·)) ++
+    ["  }", "  *out = acc;", "  return 0;", "}", ""]
+  pure ("\n".intercalate L)
+
+def emitBend (label : String) (r : Reduced) : String :=
+  s!"import Base\nimport ./kernel.bend as K\n\n# generated by pipegen from chain {label} -- do not edit\ndef prog() -> K.Stmts:\n  {BendP.showProg (lower r)}\n"
+
+end Pipe
+
+######## 6. reused shared path (excerpt of bridge/Bridge/Proofs.lean)
+--- line 528
+theorem cert_loop (c : Cert) {env : Env} {out : Option Int} (ha : Admitted env) (hn : env.n ≤ c.N)
+    (ss : List S) (hro : renderOps c.ops = some ss) :
+    ∀ (k i : Nat) (st : CSt) (s : IR.St) (tin : List Int), i + k = env.n → R out st s → inI32 s.r1 →
+    -((i : Int) * c.M) ≤ s.acc → s.acc ≤ (i : Int) * c.M →
+    ∃ st', loopK env ss k i st = some st' ∧
+      R out st' (IR.runLoop c.ops ((env.a.take env.n).drop i) ((env.b.take env.n).drop i) tin s)
+--- line 576
+theorem cert_total (c : Cert) (f : CFile) (hr : render [.Loop c.ops] = some f)
+    (hb : bound [.Loop c.ops] = c.N) (env : Env) (out0 : Option Int) (ha : Admitted env) :
+    cRun f env out0 = if c.N < env.n then .ret (-1) out0
+      else .ret 0 (some (refRed c.f (env.a.take env.n) (env.b.take env.n))) := by
+  have hs := sound_render _ f hr env out0 ha
+  rw [hb] at hs
+--- line 607
+theorem cert_gate (c : Cert) (p : Prog) (hp : p = [.Loop c.ops]) (hb : bound p = c.N) {f : CFile}
+    (hr : render p = some f) (env : Env) (out0 : Option Int) (ha : Admitted env) :
+    cRun f env out0 = if bound p < env.n then .ret (-1) out0
+      else .ret 0 (some (IR.run p (env.a.take env.n) (env.b.take env.n)).acc) := by
+  subst hp; rw [cert_total c f hr hb env out0 ha, hb, cert_run]
+
+--- line 789
+theorem gate_total {cs bs : String} {ex : Bool} {p : Prog} (h : gate cs bs ex = .pass p) :
+    ∃ f, C.parseFile cs = .ok f ∧ BendP.parseBend bs = .ok p ∧ certified p = true ∧
+      (ex = true → exactCert p = true) ∧
+      ∀ env out0, Admitted env → cRun f env out0 = if bound p < env.n then .ret (-1) out0
+        else .ret 0 (some (IR.run p (env.a.take env.n) (env.b.take env.n)).acc) := by
+  obtain ⟨f, hf, -, hb, hr, hc, hx⟩ := gate_pass h
+--- line 820
+theorem exact_gate_sound {cs bs : String} {p : Prog} (h : gate cs bs true = .pass p) :
+    ∃ f, C.parseFile cs = .ok f ∧ BendP.parseBend bs = .ok p ∧
+      (p = posIR ∨ p = l1IR ∨ p = l2IR ∨ p = hamIR ∨ p = oslIR) ∧
+      ∀ env out0, Admitted env → cRun f env out0 = if bound p < env.n then .ret (-1) out0
+        else .ret 0 (some (refOf p (env.a.take env.n) (env.b.take env.n))) := by
+  obtain ⟨f, hf, hb, hc, hx, H⟩ := gate_total h
+797:  · exact cert_gate certDot posIR rfl (by decide) hr env out0 ha
+799:  · exact cert_gate certL1 l1IR rfl (by decide) hr env out0 ha
+800:  · exact cert_gate certL2 l2IR rfl (by decide) hr env out0 ha
+801:  · exact cert_gate certHam hamIR rfl (by decide) hr env out0 ha
+802:  · exact cert_gate certOsl oslIR rfl (by decide) hr env out0 ha
+
+######## 7. ill-typed chain controls (pipe_controls/*.lean)
+--- pipe_controls/ok_positive.lean
+def c : Reduced := BytePairs.loop subtract |>.loop abs |>.loop sum
+--- pipe_controls/ty_double_terminal.lean
+def c : Reduced := BytePairs.loop subtract |>.loop sum |>.loop sum
+--- pipe_controls/ty_map_before_zip.lean
+def c : Reduced := BytePairs.loop abs |>.loop subtract |>.loop sum
+--- pipe_controls/ty_missing_terminal.lean
+def c : Reduced := BytePairs.loop subtract |>.loop abs
+--- pipe_controls/ty_missing_zip.lean
+def c : Reduced := BytePairs.loop abs |>.loop sum
+--- pipe_controls/ty_stage_after_terminal.lean
+def c : Reduced := BytePairs.loop subtract |>.loop sum |>.loop abs
+--- pipe_controls/ty_terminal_first.lean
+def c : Reduced := BytePairs.loop sum
+--- pipe_controls/ty_two_zips.lean
+def c : Reduced := BytePairs.loop subtract |>.loop multiply |>.loop sum
+--- pipe_controls/ty_unsupported_callback.lean
+def c : Reduced := BytePairs.loop subtract |>.loop (fun (v : Int) => v + 1) |>.loop sum
+
+######## 8. generated files: hash lock + full contents
+07099e7e47020e72c6c4ac78a94b0dc75fa03fdb19a7e6f7d94c8ecedf973fba  dot/i8dot.c
+3bd36305d87016ddc868777526f8a50e09c5b98904b8db2fb4d823d10ae79156  l1/i8dot.c
+5f0fbfa8eb919738a818244108b289ec03b1980b269793f1a4f00dde5e156804  l2/i8dot.c
+ca6de4349eafa37f0027a6e56679b99c93be3b92d2fc823b4c45af8501b1216a  ham/i8dot.c
+ed6fa7d92cf56122e52c412141253c444852707d6c89edbe6ada113302677a0e  osl/i8dot.c
+b30e82bc0052fbca2859b44bda4c239aa44bb640f144abc2dc31cb744a7faab1  qz7/i8dot.c
+94b9d27a1ca3302bdc410522284a3eb83189a48a014bef066ebd86e4e7bc57bc  dot/prog.bend
+476f5836751a63da5bc5dcfea1c1d06523a8c3d3a1c00e71c9ebdb741da4f1a0  l1/prog.bend
+ad82c0b210e953b96608887c120575bde6026bc47461d4dcb9269520d407414b  l2/prog.bend
+2cadabbf845383a343c2e139c557f91469919b1bb3a44c8c46ff255b69efcea6  ham/prog.bend
+a7bb95fb4e6de3d64f482f9ed18c7019876b6fbb1b3f5b644062b25cfc00b0e1  osl/prog.bend
+79f6468a284da72b699ba28f2ca541bd4738bdcca896337872df35dc291d7948  qz7/prog.bend
+--- gen7/dot/i8dot.c
+/* emitted by pipegen from chain dot -- do not edit */
+#include <stddef.h>
+#include <stdint.h>
+#define I8DOT_MAX_N 131071u
+
+int i8dot(const int8_t *a, const int8_t *b, size_t n, int32_t *out) {
+  if (n > I8DOT_MAX_N) return -1;
+  int32_t acc = 0;
+  int32_t r0 = 0;
+  int32_t r1 = 0;
+  for (size_t i = 0; i < n; i++) {
+    r0 = (int32_t)a[i];
+    r1 = (int32_t)b[i];
+    r0 = r0 * r1;
+    acc = acc + r0;
+  }
+  *out = acc;
+  return 0;
+}
+--- gen7/dot/prog.bend
+import Base
+import ./kernel.bend as K
+
+# generated by pipegen from chain dot -- do not edit
+def prog() -> K.Stmts:
+  K.PCons{K.Loop{K.OCons{K.LdA{}, K.OCons{K.LdB{}, K.OCons{K.Mul{}, K.OCons{K.Acc{}, K.ONil{}}}}}}, K.PNil{}}
+--- gen7/l1/i8dot.c
+/* emitted by pipegen from chain l1 -- do not edit */
+#include <stddef.h>
+#include <stdint.h>
+#define I8DOT_MAX_N 8421504u
+
+int i8dot(const int8_t *a, const int8_t *b, size_t n, int32_t *out) {
+  if (n > I8DOT_MAX_N) return -1;
+  int32_t acc = 0;
+  int32_t r0 = 0;
+  int32_t r1 = 0;
+  for (size_t i = 0; i < n; i++) {
+    r0 = (int32_t)a[i];
+    r1 = (int32_t)b[i];
+    r0 = r0 - r1;
+    r0 = r0 < 0 ? -r0 : r0;
+    acc = acc + r0;
+  }
+  *out = acc;
+  return 0;
+}
+--- gen7/l1/prog.bend
+import Base
+import ./kernel.bend as K
+
+# generated by pipegen from chain l1 -- do not edit
+def prog() -> K.Stmts:
+  K.PCons{K.Loop{K.OCons{K.LdA{}, K.OCons{K.LdB{}, K.OCons{K.Sub{}, K.OCons{K.AbsT{}, K.OCons{K.Acc{}, K.ONil{}}}}}}}, K.PNil{}}
+--- gen7/l2/i8dot.c
+/* emitted by pipegen from chain l2 -- do not edit */
+#include <stddef.h>
+#include <stdint.h>
+#define I8DOT_MAX_N 33025u
+
+int i8dot(const int8_t *a, const int8_t *b, size_t n, int32_t *out) {
+  if (n > I8DOT_MAX_N) return -1;
+  int32_t acc = 0;
+  int32_t r0 = 0;
+  int32_t r1 = 0;
+  for (size_t i = 0; i < n; i++) {
+    r0 = (int32_t)a[i];
+    r1 = (int32_t)b[i];
+    r0 = r0 - r1;
+    r0 = r0 * r0;
+    acc = acc + r0;
+  }
+  *out = acc;
+  return 0;
+}
+--- gen7/l2/prog.bend
+import Base
+import ./kernel.bend as K
+
+# generated by pipegen from chain l2 -- do not edit
+def prog() -> K.Stmts:
+  K.PCons{K.Loop{K.OCons{K.LdA{}, K.OCons{K.LdB{}, K.OCons{K.Sub{}, K.OCons{K.Sq{}, K.OCons{K.Acc{}, K.ONil{}}}}}}}, K.PNil{}}
+--- gen7/ham/i8dot.c
+/* emitted by pipegen from chain ham -- do not edit */
+#include <stddef.h>
+#include <stdint.h>
+#define I8DOT_MAX_N 2147483647u
+
+int i8dot(const int8_t *a, const int8_t *b, size_t n, int32_t *out) {
+  if (n > I8DOT_MAX_N) return -1;
+  int32_t acc = 0;
+  int32_t r0 = 0;
+  int32_t r1 = 0;
+  for (size_t i = 0; i < n; i++) {
+    r0 = (int32_t)a[i];
+    r1 = (int32_t)b[i];
+    r0 = r0 - r1;
+    r0 = r0 != 0;
+    acc = acc + r0;
+  }
+  *out = acc;
+  return 0;
+}
+--- gen7/ham/prog.bend
+import Base
+import ./kernel.bend as K
+
+# generated by pipegen from chain ham -- do not edit
+def prog() -> K.Stmts:
+  K.PCons{K.Loop{K.OCons{K.LdA{}, K.OCons{K.LdB{}, K.OCons{K.Sub{}, K.OCons{K.Ne0{}, K.OCons{K.Acc{}, K.ONil{}}}}}}}, K.PNil{}}
+--- gen7/osl/i8dot.c
+/* emitted by pipegen from chain osl -- do not edit */
+#include <stddef.h>
+#include <stdint.h>
+#define I8DOT_MAX_N 8421504u
+
+int i8dot(const int8_t *a, const int8_t *b, size_t n, int32_t *out) {
+  if (n > I8DOT_MAX_N) return -1;
+  int32_t acc = 0;
+  int32_t r0 = 0;
+  int32_t r1 = 0;
+  for (size_t i = 0; i < n; i++) {
+    r0 = (int32_t)a[i];
+    r1 = (int32_t)b[i];
+    r0 = r0 - r1;
+    if (r0 < 0) r0 = 0;
+    acc = acc + r0;
+  }
+  *out = acc;
+  return 0;
+}
+--- gen7/osl/prog.bend
+import Base
+import ./kernel.bend as K
+
+# generated by pipegen from chain osl -- do not edit
+def prog() -> K.Stmts:
+  K.PCons{K.Loop{K.OCons{K.LdA{}, K.OCons{K.LdB{}, K.OCons{K.Sub{}, K.OCons{K.Pos{}, K.OCons{K.Acc{}, K.ONil{}}}}}}}, K.PNil{}}
+--- gen7/qz7/i8dot.c
+/* emitted by pipegen from chain qz7 -- do not edit */
+#include <stddef.h>
+#include <stdint.h>
+#define I8DOT_MAX_N 8421504u
+
+int i8dot(const int8_t *a, const int8_t *b, size_t n, int32_t *out) {
+  if (n > I8DOT_MAX_N) return -1;
+  int32_t acc = 0;
+  int32_t r0 = 0;
+  int32_t r1 = 0;
+  for (size_t i = 0; i < n; i++) {
+    r0 = (int32_t)a[i];
+    r1 = (int32_t)b[i];
+    r0 = r0 - r1;
+    r0 = r0 < 0 ? -r0 : r0;
+    acc = acc + r0;
+  }
+  *out = acc;
+  return 0;
+}
+--- gen7/qz7/prog.bend
+import Base
+import ./kernel.bend as K
+
+# generated by pipegen from chain qz7 -- do not edit
+def prog() -> K.Stmts:
+  K.PCons{K.Loop{K.OCons{K.LdA{}, K.OCons{K.LdB{}, K.OCons{K.Sub{}, K.OCons{K.AbsT{}, K.OCons{K.Acc{}, K.ONil{}}}}}}}, K.PNil{}}
+--- diff gen7 vs i8red6 (only provenance lines)
+> dot vs i8red6/pos
+1c1
+< /* emitted by pipegen from chain dot -- do not edit */
+---
+> /* emitted by gen.py from ir/pos.json -- do not edit */
+4c4
+< # generated by pipegen from chain dot -- do not edit
+---
+> # generated by gen.py from ir/pos.json -- do not edit
+> l1 vs i8red6/l1
+1c1
+< /* emitted by pipegen from chain l1 -- do not edit */
+---
+> /* emitted by gen.py from ir/l1.json -- do not edit */
+4c4
+< # generated by pipegen from chain l1 -- do not edit
+---
+> # generated by gen.py from ir/l1.json -- do not edit
+> l2 vs i8red6/l2
+1c1
+< /* emitted by pipegen from chain l2 -- do not edit */
+---
+> /* emitted by gen.py from ir/l2.json -- do not edit */
+4c4
+< # generated by pipegen from chain l2 -- do not edit
+---
+> # generated by gen.py from ir/l2.json -- do not edit
+> ham vs i8red6/ham
+1c1
+< /* emitted by pipegen from chain ham -- do not edit */
+---
+> /* emitted by gen.py from ir/ham.json -- do not edit */
+4c4
+< # generated by pipegen from chain ham -- do not edit
+---
+> # generated by gen.py from ir/ham.json -- do not edit
+> osl vs i8red6/osl
+1c1
+< /* emitted by pipegen from chain osl -- do not edit */
+---
+> /* emitted by gen.py from ir/osl.json -- do not edit */
+4c4
+< # generated by pipegen from chain osl -- do not edit
+---
+> # generated by gen.py from ir/osl.json -- do not edit
+> qz7 vs i8red6/l1
+1c1
+< /* emitted by pipegen from chain qz7 -- do not edit */
+---
+> /* emitted by gen.py from ir/l1.json -- do not edit */
+4c4
+< # generated by pipegen from chain qz7 -- do not edit
+---
+> # generated by gen.py from ir/l1.json -- do not edit
+
+######## 9. translated generated Bend (bridge/Pipe/BendGen.lean)
+import Bridge.BendKernel
+/-! GENERATED by bendlink/bend2lean.py -- do not edit. -/
+
+-- ../gen7/dot/prog.bend sha256 94b9d27a1ca3302bdc410522284a3eb83189a48a014bef066ebd86e4e7bc57bc
+def BK.P_gdot.prog : BK.Stmts :=
+  (BK.Stmts.PCons (BK.Stmt.Loop (BK.Ops.OCons BK.Op.LdA (BK.Ops.OCons BK.Op.LdB (BK.Ops.OCons BK.Op.Mul (BK.Ops.OCons BK.Op.Acc BK.Ops.ONil))))) BK.Stmts.PNil)
+
+-- ../gen7/l1/prog.bend sha256 476f5836751a63da5bc5dcfea1c1d06523a8c3d3a1c00e71c9ebdb741da4f1a0
+def BK.P_gl1.prog : BK.Stmts :=
+  (BK.Stmts.PCons (BK.Stmt.Loop (BK.Ops.OCons BK.Op.LdA (BK.Ops.OCons BK.Op.LdB (BK.Ops.OCons BK.Op.Sub (BK.Ops.OCons BK.Op.AbsT (BK.Ops.OCons BK.Op.Acc BK.Ops.ONil)))))) BK.Stmts.PNil)
+
+-- ../gen7/l2/prog.bend sha256 ad82c0b210e953b96608887c120575bde6026bc47461d4dcb9269520d407414b
+def BK.P_gl2.prog : BK.Stmts :=
+  (BK.Stmts.PCons (BK.Stmt.Loop (BK.Ops.OCons BK.Op.LdA (BK.Ops.OCons BK.Op.LdB (BK.Ops.OCons BK.Op.Sub (BK.Ops.OCons BK.Op.Sq (BK.Ops.OCons BK.Op.Acc BK.Ops.ONil)))))) BK.Stmts.PNil)
+
+-- ../gen7/ham/prog.bend sha256 2cadabbf845383a343c2e139c557f91469919b1bb3a44c8c46ff255b69efcea6
+def BK.P_gham.prog : BK.Stmts :=
+  (BK.Stmts.PCons (BK.Stmt.Loop (BK.Ops.OCons BK.Op.LdA (BK.Ops.OCons BK.Op.LdB (BK.Ops.OCons BK.Op.Sub (BK.Ops.OCons BK.Op.Ne0 (BK.Ops.OCons BK.Op.Acc BK.Ops.ONil)))))) BK.Stmts.PNil)
+
+-- ../gen7/osl/prog.bend sha256 a7bb95fb4e6de3d64f482f9ed18c7019876b6fbb1b3f5b644062b25cfc00b0e1
+def BK.P_gosl.prog : BK.Stmts :=
+  (BK.Stmts.PCons (BK.Stmt.Loop (BK.Ops.OCons BK.Op.LdA (BK.Ops.OCons BK.Op.LdB (BK.Ops.OCons BK.Op.Sub (BK.Ops.OCons BK.Op.Pos (BK.Ops.OCons BK.Op.Acc BK.Ops.ONil)))))) BK.Stmts.PNil)
+
+-- ../gen7/qz7/prog.bend sha256 79f6468a284da72b699ba28f2ca541bd4738bdcca896337872df35dc291d7948
+def BK.P_gqz7.prog : BK.Stmts :=
+  (BK.Stmts.PCons (BK.Stmt.Loop (BK.Ops.OCons BK.Op.LdA (BK.Ops.OCons BK.Op.LdB (BK.Ops.OCons BK.Op.Sub (BK.Ops.OCons BK.Op.AbsT (BK.Ops.OCons BK.Op.Acc BK.Ops.ONil)))))) BK.Stmts.PNil)
+
+
+######## 10. clean replay (fresh copy ~/i8red7-scratch, no .lake): full stdout
+
+==================== versions
+bend 2.0.40
+Lean (version 4.15.0, x86_64-unknown-linux-gnu, commit 11651562caae, Release)
+gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
+Ubuntu clang version 14.0.0-1ubuntu1.1
+Python 3.12.16
+Linux x86_64
+
+==================== emit with gen.py (trusted) and compare with the committed emitted files
+emit_pos_same                            exit=0   want=0   ok         
+emit_wrap_same                           exit=0   want=0   ok         
+emit_buf_same                            exit=0   want=0   ok         
+emit_l1_same                             exit=0   want=0   ok         
+emit_l2_same                             exit=0   want=0   ok         
+emit_ham_same                            exit=0   want=0   ok         
+emit_osl_same                            exit=0   want=0   ok         
+emit_l2_badguard_same                    exit=0   want=0   ok         
+emit_l2_buf_same                         exit=0   want=0   ok         
+emit_ham_badguard_same                   exit=0   want=0   ok         
+emit_osl_badguard_same                   exit=0   want=0   ok         
+emit_osl_buf_same                        exit=0   want=0   ok         
+emit_l1_badguard_same                    exit=0   want=0   ok         
+emit_l1_buf_same                         exit=0   want=0   ok         
+emit_ham_buf_same                        exit=0   want=0   ok         
+emit_l1_noabs_same                       exit=0   want=0   ok         
+emit_ham_noabs_same                      exit=0   want=0   ok         
+emit_osl_prepos_same                     exit=0   want=0   ok         
+emit_ham_nosub_same                      exit=0   want=0   ok         
+pos_C_byteidentical_to_r5                exit=0   want=0   ok         
+kernel_copy_pos                          exit=0   want=0   ok         
+kernel_copy_wrap                         exit=0   want=0   ok         
+kernel_copy_buf                          exit=0   want=0   ok         
+kernel_copy_l1                           exit=0   want=0   ok         
+kernel_copy_l2                           exit=0   want=0   ok         
+kernel_copy_ham                          exit=0   want=0   ok         
+kernel_copy_osl                          exit=0   want=0   ok         
+fc940537c23683ff82ae376b709f2e157d16ec5f3b12253cb18abb1070d2e42d  kernel.bend
+eef92b360799a54fdffacc23f455e42bf60749715ef28dc9e1807a69be142187  variants/buf/prog.bend
+b8444220a2a669742285e27ecf45db30810f68444fc6909b13a9df96ff3669bd  variants/ham/prog.bend
+cd63e4525158940d9716fb9970011cbafea5e3379bcca1fc1a0972a4036cb0e7  variants/l1/prog.bend
+150fd5f6d68633a297f3e36875ceaf6e30c4f89727bfced9a56af758701ed16a  variants/l2/prog.bend
+201eac565acb9adf71c94aeae3cf9293aae55975ecfe46320ad08b87914b9ec2  variants/osl/prog.bend
+4ec97666e7c258fb1b63d0bc44a09753aa9b9d734f1686bf821829b7d548a869  variants/pos/prog.bend
+7742a1412571b36679c0f7cbe6990ca9afe68ccddd2e4204157ef15ae28f4ae3  variants/wrap/prog.bend
+49861f9f84d727d1d72fc3a1c70904561d447edf21aad20b18a24227b315788e  variants/buf/i8dot.c
+b316aaeeebf79844a69c66c97550eee79dc49e999a1d9c163c388bedc5dd7c22  variants/ham/i8dot.c
+5d1ddb544e81267111a99181175c13885043c42866628aac664a5ab1b889d9e6  variants/l1/i8dot.c
+b0fc0ba4b67bcc9c26e634bbfff80800eeb35ceff17b862294ef0e84d4e92550  variants/l2/i8dot.c
+c8d01d8257b24ba4e117103f00f8cc7336575475afeefdc3c728b9d0fef6da2d  variants/osl/i8dot.c
+26c89b59a1c8eb17e445d2f3fdd8480eab56e8c6a393630528f644e3b7cf5c96  variants/pos/i8dot.c
+c1a031bd05a91ecb5ab362c34d9e6eab8c1633b17bf0ffeacc3fb8821553b532  variants/wrap/i8dot.c
+
+==================== Bend --verdict (actual kernel.bend + actual prog.bend)
+bend_pos_PROOF                           exit=0   want=0   ok         ALL PROOFS CHECK
+bend_l1_PROOF_RED                        exit=0   want=0   ok         ALL PROOFS CHECK
+bend_l2_PROOF_RED                        exit=0   want=0   ok         ALL PROOFS CHECK
+bend_ham_PROOF_RED                       exit=0   want=0   ok         ALL PROOFS CHECK
+bend_osl_PROOF_RED                       exit=0   want=0   ok         ALL PROOFS CHECK
+
+==================== trusted Bend->Lean translation: regenerate and require byte-identical Lean
+base_pinned_same                         exit=0   want=0   ok         
+translate_kernel_same                    exit=0   want=0   ok         
+translate_progs_same                     exit=0   want=0   ok         
+translate_gen7_progs_same                exit=0   want=0   ok         
+
+==================== Lean build (checker + all proofs) and axiom audit
+lean_build                               exit=0   want=0   ok         
+lean_audit                               exit=0   want=0   ok         'Facts.l1_abs_to_sq_differs' does not depend on any axioms
+audited theorems: 162
+     36 [propext, Classical.choice, Quot.sound]
+     53 [propext, Quot.sound]
+     28 [propext]
+     45 does not depend on any axioms
+audit_covers_every_theorem               exit=0   want=0   ok         
+no_sorry                                 exit=1   want=1   ok         
+
+==================== the one executable gate on the actual emitted files
+gate_exact_pos                           exit=0   want=0   ok         VERDICT: PASS
+gate_match_pos                           exit=0   want=0   ok         VERDICT: PASS
+gate_exact_l1                            exit=0   want=0   ok         VERDICT: PASS
+gate_match_l1                            exit=0   want=0   ok         VERDICT: PASS
+gate_exact_l2                            exit=0   want=0   ok         VERDICT: PASS
+gate_match_l2                            exit=0   want=0   ok         VERDICT: PASS
+gate_exact_ham                           exit=0   want=0   ok         VERDICT: PASS
+gate_match_ham                           exit=0   want=0   ok         VERDICT: PASS
+gate_exact_osl                           exit=0   want=0   ok         VERDICT: PASS
+gate_match_osl                           exit=0   want=0   ok         VERDICT: PASS
+gate_exact_wrap_own                      exit=3   want=3   ok         VERDICT: IR MISMATCH
+gate_match_wrap_own                      exit=0   want=0   ok         VERDICT: PASS
+-- base controls (three-kernel milestone)
+ctl_buf_dot_r5                           exit=2   want=2   ok         REJECT: line 4: unrecognised line "#include <stdlib.h>"
+ctl_buf_l2_diffbuffer                    exit=2   want=2   ok         REJECT: line 4: unrecognised line "#include <stdlib.h>"
+ctl_l2_wrong_guard_131071                exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 33025 for this loop body (found [C.Di
+ctl_l2_wrong_guard_match                 exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 33025 for this loop body (found [C.Di
+ctl_l2_missing_guard                     exit=2   want=2   ok         REJECT: statement 0: expected `if (n > I8DOT_MAX_N) return -1;`, found `int32_t acc = 0;`
+ctl_l1_arith_signflip                    exit=2   want=2   ok         REJECT: line 15: unrecognised line "if (r0 > 0) r0 = -r0;"
+ctl_l1_noabs_exact_own                   exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_l1_noabs_match_own                   exit=5   want=5   ok         VERDICT: UNCERTIFIED (matching but uncertified program)
+ctl_l1_noabs_vs_l1prog                   exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_l1C_vs_l2prog                        exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_l2C_vs_l1prog                        exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_dotC_vs_l2prog                       exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_l2prog_tampered                      exit=4   want=4   ok         BEND REJECT: file is not exactly the generated preamble + `def prog() -> K.Stmts:` + one term
+ctl_r5_overflow_match                    exit=5   want=5   ok         VERDICT: UNCERTIFIED (matching but uncertified program)
+-- Hamming / one-sided L1 controls
+ctl_ham_bit_to_2                         exit=2   want=2   ok         REJECT: line 16: unrecognised line "if (r0 > 0) r0 = 2;"
+ctl_osl_pos_to_1                         exit=2   want=2   ok         REJECT: line 15: unrecognised line "if (r0 < 0) r0 = 1;"
+ctl_ham_wrong_guard_2147483648           exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 2147483647 for this loop body (found 
+ctl_ham_wrong_guard_match                exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 2147483647 for this loop body (found 
+ctl_osl_wrong_guard_8421505              exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 8421504 for this loop body (found [C.
+ctl_osl_missing_guard                    exit=2   want=2   ok         REJECT: statement 0: expected `if (n > I8DOT_MAX_N) return -1;`, found `int32_t acc = 0;`
+ctl_buf_osl_diffbuffer                   exit=2   want=2   ok         REJECT: line 4: unrecognised line "#include <stdlib.h>"
+ctl_ham_noabs_exact_own                  exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_ham_noabs_match_own                  exit=5   want=5   ok         VERDICT: UNCERTIFIED (matching but uncertified program)
+ctl_ham_noabs_vs_hamprog                 exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_osl_pos_before_sub_exact             exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_osl_pos_before_sub_match             exit=5   want=5   ok         VERDICT: UNCERTIFIED (matching but uncertified program)
+ctl_osl_pos_before_sub_vs_osl            exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_l1C_vs_hamprog                       exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_l1C_vs_oslprog                       exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_hamC_vs_oslprog                      exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_oslC_vs_l1prog                       exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_oslC_vs_hamprog                      exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_hamprog_tampered                     exit=4   want=4   ok         BEND REJECT: file is not exactly the generated preamble + `def prog() -> K.Stmts:` + one term
+ctl_oslprog_tampered                     exit=4   want=4   ok         BEND REJECT: file is not exactly the generated preamble + `def prog() -> K.Stmts:` + one term
+-- i8red6: certified ternary L1 (AbsT) and != Hamming (Ne0) spellings
+ctl6_l1t_inverted                        exit=2   want=2   ok         REJECT: line 15: unrecognised line "r0 = r0 < 0 ? r0 : -r0;"
+ctl6_l1t_gt                              exit=2   want=2   ok         REJECT: line 15: unrecognised line "r0 = r0 > 0 ? -r0 : r0;"
+ctl6_l1t_le                              exit=2   want=2   ok         REJECT: line 15: unrecognised line "r0 = r0 <= 0 ? -r0 : r0;"
+ctl6_l1t_bothneg                         exit=2   want=2   ok         REJECT: line 15: unrecognised line "r0 = r0 < 0 ? -r0 : -r0;"
+ctl6_l1t_noguard                         exit=2   want=2   ok         REJECT: statement 0: expected `if (n > I8DOT_MAX_N) return -1;`, found `int32_t acc = 0;`
+ctl6_ham_eq                              exit=2   want=2   ok         REJECT: line 15: unrecognised line "r0 = r0 == 0;"
+ctl6_ham_gt                              exit=2   want=2   ok         REJECT: line 15: unrecognised line "r0 = r0 > 0;"
+ctl6_ham_ne1                             exit=2   want=2   ok         REJECT: line 15: unrecognised line "r0 = r0 != 1;"
+ctl6_ham_noguard                         exit=2   want=2   ok         REJECT: statement 0: expected `if (n > I8DOT_MAX_N) return -1;`, found `int32_t acc = 0;`
+ctl6_l1_wrong_guard_8421505              exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 8421504 for this loop body (found [C.
+ctl6_l1_wrong_guard_match                exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 8421504 for this loop body (found [C.
+ctl6_buf_l1_absbuffer                    exit=2   want=2   ok         REJECT: line 4: unrecognised line "#include <stdlib.h>"
+ctl6_buf_ham_ne0buffer                   exit=2   want=2   ok         REJECT: line 4: unrecognised line "#include <stdlib.h>"
+   (sign-sensitive: Sub;Bit without Abs/Ne0 = controls/ham_noabs above: exact 3, match 5)
+ctl6_ham_nosub_exact_own                 exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl6_ham_nosub_match_own                 exit=5   want=5   ok         VERDICT: UNCERTIFIED (matching but uncertified program)
+ctl6_ham_nosub_vs_hamprog                exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl6_l1_retired_spelling_exact_own       exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+ctl6_l1_retired_spelling_match_own       exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+ctl6_l1_retired_C_vs_new_prog            exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+ctl6_l1_new_C_vs_retired_prog            exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl6_ham_retired_spelling_exact_own      exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+ctl6_ham_retired_spelling_match_own      exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+ctl6_ham_retired_C_vs_new_prog           exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+ctl6_ham_new_C_vs_retired_prog           exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl6_hamC_vs_l1prog                      exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl6_hamC_vs_dotprog                     exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl6_l1C_vs_dotprog                      exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl6_l1prog_tampered                     exit=4   want=4   ok         BEND REJECT: file is not exactly the generated preamble + `def prog() -> K.Stmts:` + one term
+
+==================== negative controls: evaluator primitive changed in kernel.bend; Bend's law shares the primitive, the Lean link does not
+neg_zsub_kernel_changed                  exit=1   want=1   ok         
+neg_zsub_bend_l1_law_still_passes        exit=0   want=0   ok         ALL PROOFS CHECK
+neg_zsub_lean_differs                    exit=1   want=1   ok         
+neg_zsub_link_build_fails                exit=1   want=1   ok         error: ././././Bridge/BendLink.lean:94:71: omega could not prove the goal:
+BendLink.lean:94:71: omega could not prove the goal
+neg_zpos_kernel_changed                  exit=1   want=1   ok         
+neg_zpos_bend_osl_law_still_passes       exit=0   want=0   ok         ALL PROOFS CHECK
+neg_zpos_lean_differs                    exit=1   want=1   ok         
+neg_zpos_link_build_fails                exit=1   want=1   ok         error: ././././Bridge/BendLink.lean:109:57: omega could not prove the goal:
+BendLink.lean:109:57: omega could not prove the goal
+neg_zne0_kernel_changed                  exit=1   want=1   ok         
+neg_zne0_bend_ham_law_still_passes       exit=0   want=0   ok         ALL PROOFS CHECK
+neg_zne0_lean_differs                    exit=1   want=1   ok         
+neg_zne0_link_build_fails                exit=1   want=1   ok         error: ././././Bridge/BendLink.lean:131:102: omega could not prove the goal:
+BendLink.lean:131:102: omega could not prove the goal
+neg_zabs_kernel_changed                  exit=1   want=1   ok         
+neg_zabs_bend_l1_law_still_passes        exit=0   want=0   ok         ALL PROOFS CHECK
+neg_zabs_lean_differs                    exit=1   want=1   ok         
+neg_zabs_link_build_fails                exit=1   want=1   ok         error: ././././Bridge/BendLink.lean:103:41: omega could not prove the goal:
+BendLink.lean:103:41: omega could not prove the goal
+
+==================== finite native differential tests (not proof): n=0, 1, 2, extremes, around each guard, deterministic random
+native_pos_gcc__O2                       exit=0   want=0   ok         kernel=0 N=131071 readable=131073 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147467264 (INT32_MAX=214748364
+native_pos_gcc__O3__march_native         exit=0   want=0   ok         kernel=0 N=131071 readable=131073 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147467264 (INT32_MAX=214748364
+native_pos_clang__O3                     exit=0   want=0   ok         kernel=0 N=131071 readable=131073 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147467264 (INT32_MAX=214748364
+native_pos_gcc__O1__fsanitize_undefined__fno_sanitize_recover_all exit=0   want=0   ok         kernel=0 N=131071 readable=131073 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147467264 (INT32_MAX=214748364
+native_pos_clang__O1__fsanitize_undefined__fno_sanitize_recover_all exit=0   want=0   ok         kernel=0 N=131071 readable=131073 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147467264 (INT32_MAX=214748364
+native_l1_gcc__O2                        exit=0   want=0   ok         kernel=1 N=8421504 readable=8421506 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483
+native_l1_gcc__O3__march_native          exit=0   want=0   ok         kernel=1 N=8421504 readable=8421506 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483
+native_l1_clang__O3                      exit=0   want=0   ok         kernel=1 N=8421504 readable=8421506 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483
+native_l1_gcc__O1__fsanitize_undefined__fno_sanitize_recover_all exit=0   want=0   ok         kernel=1 N=8421504 readable=8421506 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483
+native_l1_clang__O1__fsanitize_undefined__fno_sanitize_recover_all exit=0   want=0   ok         kernel=1 N=8421504 readable=8421506 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483
+native_l2_gcc__O2                        exit=0   want=0   ok         kernel=2 N=33025 readable=33027 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147450625 (INT32_MAX=2147483647)
+native_l2_gcc__O3__march_native          exit=0   want=0   ok         kernel=2 N=33025 readable=33027 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147450625 (INT32_MAX=2147483647)
+native_l2_clang__O3                      exit=0   want=0   ok         kernel=2 N=33025 readable=33027 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147450625 (INT32_MAX=2147483647)
+native_l2_gcc__O1__fsanitize_undefined__fno_sanitize_recover_all exit=0   want=0   ok         kernel=2 N=33025 readable=33027 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147450625 (INT32_MAX=2147483647)
+native_l2_clang__O1__fsanitize_undefined__fno_sanitize_recover_all exit=0   want=0   ok         kernel=2 N=33025 readable=33027 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147450625 (INT32_MAX=2147483647)
+native_ham_gcc__O2                       exit=0   want=0   ok         kernel=3 N=2147483647 readable=1048576 runs=2035 skipped=10 fails=0 worst_case_N_sum=2147483647 (INT32_MAX=214
+native_ham_gcc__O3__march_native         exit=0   want=0   ok         kernel=3 N=2147483647 readable=1048576 runs=2035 skipped=10 fails=0 worst_case_N_sum=2147483647 (INT32_MAX=214
+native_ham_clang__O3                     exit=0   want=0   ok         kernel=3 N=2147483647 readable=1048576 runs=2035 skipped=10 fails=0 worst_case_N_sum=2147483647 (INT32_MAX=214
+native_ham_gcc__O1__fsanitize_undefined__fno_sanitize_recover_all exit=0   want=0   ok         kernel=3 N=2147483647 readable=1048576 runs=2035 skipped=10 fails=0 worst_case_N_sum=2147483647 (INT32_MAX=214
+native_ham_clang__O1__fsanitize_undefined__fno_sanitize_recover_all exit=0   want=0   ok         kernel=3 N=2147483647 readable=1048576 runs=2035 skipped=10 fails=0 worst_case_N_sum=2147483647 (INT32_MAX=214
+native_osl_gcc__O2                       exit=0   want=0   ok         kernel=4 N=8421504 readable=8421506 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483
+native_osl_gcc__O3__march_native         exit=0   want=0   ok         kernel=4 N=8421504 readable=8421506 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483
+native_osl_clang__O3                     exit=0   want=0   ok         kernel=4 N=8421504 readable=8421506 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483
+native_osl_gcc__O1__fsanitize_undefined__fno_sanitize_recover_all exit=0   want=0   ok         kernel=4 N=8421504 readable=8421506 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483
+native_osl_clang__O1__fsanitize_undefined__fno_sanitize_recover_all exit=0   want=0   ok         kernel=4 N=8421504 readable=8421506 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483
+-- Hamming at its exact guard with full 2 GiB readable arrays (one build): n = N-1, N on extremes (N*1 = INT32_MAX)
+native_ham_fulledge_gcc_O2               exit=0   want=0   ok         kernel=3 N=2147483647 readable=2147483649 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483647 (INT32_MAX=2
+dot undefined symbols: []
+gen7_dot_no_imports                      exit=0   want=0   ok         
+l1 undefined symbols: []
+gen7_l1_no_imports                       exit=0   want=0   ok         
+l2 undefined symbols: []
+gen7_l2_no_imports                       exit=0   want=0   ok         
+ham undefined symbols: []
+gen7_ham_no_imports                      exit=0   want=0   ok         
+osl undefined symbols: []
+gen7_osl_no_imports                      exit=0   want=0   ok         
+qz7 undefined symbols: []
+gen7_qz7_no_imports                      exit=0   want=0   ok         
+
+==================== i8red7: .loop() front door -> lowered one-loop IR -> emitted C + Bend (fresh), compared with committed gen7
+pipegen_run                              exit=0   want=0   ok         
+dot: chain={ e := { z := Pipe.ZipFn.multiply, ms := [] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Mul, IR.Op.Acc]] derived_guard=131071 checker_bound=131071
+  in-process exact gate: PASS (term = lower chain)
+  contract[dot] den=ref on 10 deterministic vectors: OK
+l1: chain={ e := { z := Pipe.ZipFn.subtract, ms := [Pipe.MapFn.abs] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.AbsT, IR.Op.Acc]] derived_guard=8421504 checker_bound=8421504
+  in-process exact gate: PASS (term = lower chain)
+  contract[l1] den=ref on 10 deterministic vectors: OK
+l2: chain={ e := { z := Pipe.ZipFn.subtract, ms := [Pipe.MapFn.square] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.Sq, IR.Op.Acc]] derived_guard=33025 checker_bound=33025
+  in-process exact gate: PASS (term = lower chain)
+  contract[l2] den=ref on 10 deterministic vectors: OK
+ham: chain={ e := { z := Pipe.ZipFn.subtract, ms := [Pipe.MapFn.nonzero] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.Ne0, IR.Op.Acc]] derived_guard=2147483647 checker_bound=2147483647
+  in-process exact gate: PASS (term = lower chain)
+  contract[ham] den=ref on 10 deterministic vectors: OK
+osl: chain={ e := { z := Pipe.ZipFn.subtract, ms := [Pipe.MapFn.clampNeg] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.Pos, IR.Op.Acc]] derived_guard=8421504 checker_bound=8421504
+  in-process exact gate: PASS (term = lower chain)
+  contract[osl] den=ref on 10 deterministic vectors: OK
+qz7: chain={ e := { z := Pipe.ZipFn.subtract, ms := [Pipe.MapFn.abs] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.AbsT, IR.Op.Acc]] derived_guard=8421504 checker_bound=8421504
+  in-process exact gate: PASS (term = lower chain)
+  contract[l1] den=ref on 10 deterministic vectors: OK
+l1_drop_abs: chain={ e := { z := Pipe.ZipFn.subtract, ms := [] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.Acc]] derived_guard=8421504 checker_bound=131071
+  in-process exact gate: REJECT C: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.Dir.inc "stddef.h", C.Dir.inc "stdint.h", C.Dir.dfn "I8DOT_MAX_N" 8421504])
+  contract[l1] den=ref on 10 deterministic vectors: FAIL
+l1_abs_to_sq: chain={ e := { z := Pipe.ZipFn.subtract, ms := [Pipe.MapFn.square] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.Sq, IR.Op.Acc]] derived_guard=33025 checker_bound=33025
+  in-process exact gate: PASS (term = lower chain)
+  contract[l1] den=ref on 10 deterministic vectors: FAIL
+l1_extra_sq: chain={ e := { z := Pipe.ZipFn.subtract, ms := [Pipe.MapFn.abs, Pipe.MapFn.square] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.AbsT, IR.Op.Sq, IR.Op.Acc]] derived_guard=33025 checker_bound=131071
+  in-process exact gate: REJECT C: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.Dir.inc "stddef.h", C.Dir.inc "stdint.h", C.Dir.dfn "I8DOT_MAX_N" 33025])
+  contract[l1] den=ref on 10 deterministic vectors: FAIL
+dot_to_sub: chain={ e := { z := Pipe.ZipFn.subtract, ms := [] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.Acc]] derived_guard=8421504 checker_bound=131071
+  in-process exact gate: REJECT C: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.Dir.inc "stddef.h", C.Dir.inc "stdint.h", C.Dir.dfn "I8DOT_MAX_N" 8421504])
+  contract[dot] den=ref on 10 deterministic vectors: FAIL
+dot_extra_abs: chain={ e := { z := Pipe.ZipFn.multiply, ms := [Pipe.MapFn.abs] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Mul, IR.Op.AbsT, IR.Op.Acc]] derived_guard=131071 checker_bound=131071
+  in-process exact gate: MISMATCH
+  contract[dot] den=ref on 10 deterministic vectors: FAIL
+ham_swap_order: chain={ e := { z := Pipe.ZipFn.subtract, ms := [Pipe.MapFn.abs, Pipe.MapFn.nonzero] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.AbsT, IR.Op.Ne0, IR.Op.Acc]] derived_guard=2147483647 checker_bound=131071
+  in-process exact gate: REJECT C: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.Dir.inc "stddef.h", C.Dir.inc "stdint.h", C.Dir.dfn "I8DOT_MAX_N" 2147483647])
+  contract[ham] den=ref on 10 deterministic vectors: OK
+ham_mul_zip: chain={ e := { z := Pipe.ZipFn.multiply, ms := [Pipe.MapFn.nonzero] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Mul, IR.Op.Ne0, IR.Op.Acc]] derived_guard=2147483647 checker_bound=131071
+  in-process exact gate: REJECT C: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.Dir.inc "stddef.h", C.Dir.inc "stdint.h", C.Dir.dfn "I8DOT_MAX_N" 2147483647])
+  contract[ham] den=ref on 10 deterministic vectors: FAIL
+osl_to_abs: chain={ e := { z := Pipe.ZipFn.subtract, ms := [Pipe.MapFn.abs] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.AbsT, IR.Op.Acc]] derived_guard=8421504 checker_bound=8421504
+  in-process exact gate: PASS (term = lower chain)
+  contract[osl] den=ref on 10 deterministic vectors: FAIL
+osl_twice: chain={ e := { z := Pipe.ZipFn.subtract, ms := [Pipe.MapFn.clampNeg, Pipe.MapFn.clampNeg] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.Pos, IR.Op.Pos, IR.Op.Acc]] derived_guard=8421504 checker_bound=131071
+  in-process exact gate: REJECT C: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.Dir.inc "stddef.h", C.Dir.inc "stdint.h", C.Dir.dfn "I8DOT_MAX_N" 8421504])
+  contract[osl] den=ref on 10 deterministic vectors: OK
+l2_to_mul: chain={ e := { z := Pipe.ZipFn.multiply, ms := [Pipe.MapFn.square] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Mul, IR.Op.Sq, IR.Op.Acc]] derived_guard=7 checker_bound=131071
+  in-process exact gate: REJECT C: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.Dir.inc "stddef.h", C.Dir.inc "stdint.h", C.Dir.dfn "I8DOT_MAX_N" 7])
+  contract[l2] den=ref on 10 deterministic vectors: FAIL
+exit=0
+pipegen_dot_same                         exit=0   want=0   ok         
+pipegen_l1_same                          exit=0   want=0   ok         
+pipegen_l2_same                          exit=0   want=0   ok         
+pipegen_ham_same                         exit=0   want=0   ok         
+pipegen_osl_same                         exit=0   want=0   ok         
+pipegen_qz7_same                         exit=0   want=0   ok         
+pipegen_ctl_l1_drop_abs_same             exit=0   want=0   ok         
+pipegen_ctl_l1_abs_to_sq_same            exit=0   want=0   ok         
+pipegen_ctl_l1_extra_sq_same             exit=0   want=0   ok         
+pipegen_ctl_dot_to_sub_same              exit=0   want=0   ok         
+pipegen_ctl_dot_extra_abs_same           exit=0   want=0   ok         
+pipegen_ctl_ham_swap_order_same          exit=0   want=0   ok         
+pipegen_ctl_ham_mul_zip_same             exit=0   want=0   ok         
+pipegen_ctl_osl_to_abs_same              exit=0   want=0   ok         
+pipegen_ctl_osl_twice_same               exit=0   want=0   ok         
+pipegen_ctl_l2_to_mul_same               exit=0   want=0   ok         
+gen7_hash_lock                           exit=0   want=0   ok         
+generation_reads_no_old_IR               exit=1   want=1   ok         
+contract_dot_OK                          exit=0   want=0   ok         
+contract_l1_OK                           exit=0   want=0   ok         
+contract_l2_OK                           exit=0   want=0   ok         
+contract_ham_OK                          exit=0   want=0   ok         
+contract_osl_OK                          exit=0   want=0   ok         
+contract_qz7_OK                          exit=0   want=0   ok         
+contract_ham_swap_order_OK               exit=0   want=0   ok         
+contract_osl_twice_OK                    exit=0   want=0   ok         
+contract_l1_drop_abs_FAIL                exit=0   want=0   ok         
+contract_l1_abs_to_sq_FAIL               exit=0   want=0   ok         
+contract_l1_extra_sq_FAIL                exit=0   want=0   ok         
+contract_dot_to_sub_FAIL                 exit=0   want=0   ok         
+contract_dot_extra_abs_FAIL              exit=0   want=0   ok         
+contract_ham_mul_zip_FAIL                exit=0   want=0   ok         
+contract_osl_to_abs_FAIL                 exit=0   want=0   ok         
+contract_l2_to_mul_FAIL                  exit=0   want=0   ok         
+
+==================== gen7 vs i8red6: identical bytes except the provenance comment (C line 1, Bend line 4)
+gen7_dot_vs_i8red6_pos                   exit=0   want=0   ok         
+gen7_l1_vs_i8red6_l1                     exit=0   want=0   ok         
+gen7_l2_vs_i8red6_l2                     exit=0   want=0   ok         
+gen7_ham_vs_i8red6_ham                   exit=0   want=0   ok         
+gen7_osl_vs_i8red6_osl                   exit=0   want=0   ok         
+gen7_qz7_vs_i8red6_l1                    exit=0   want=0   ok         
+gen7_kernel_copy_dot                     exit=0   want=0   ok         
+gen7_kernel_copy_l1                      exit=0   want=0   ok         
+gen7_kernel_copy_l2                      exit=0   want=0   ok         
+gen7_kernel_copy_ham                     exit=0   want=0   ok         
+gen7_kernel_copy_osl                     exit=0   want=0   ok         
+gen7_kernel_copy_qz7                     exit=0   want=0   ok         
+gen7_dot_PROOF_copy                      exit=0   want=0   ok         
+gen7_l1_PROOF_RED_copy                   exit=0   want=0   ok         
+gen7_l2_PROOF_RED_copy                   exit=0   want=0   ok         
+gen7_ham_PROOF_RED_copy                  exit=0   want=0   ok         
+gen7_osl_PROOF_RED_copy                  exit=0   want=0   ok         
+gen7_qz7_PROOF_RED_copy                  exit=0   want=0   ok         
+
+==================== actual Bend --verdict on the pipegen-emitted prog.bend files
+bend_gen7_dot_PROOF                      exit=0   want=0   ok         ALL PROOFS CHECK
+bend_gen7_l1_PROOF_RED                   exit=0   want=0   ok         ALL PROOFS CHECK
+bend_gen7_l2_PROOF_RED                   exit=0   want=0   ok         ALL PROOFS CHECK
+bend_gen7_ham_PROOF_RED                  exit=0   want=0   ok         ALL PROOFS CHECK
+bend_gen7_osl_PROOF_RED                  exit=0   want=0   ok         ALL PROOFS CHECK
+bend_gen7_qz7_PROOF_RED                  exit=0   want=0   ok         ALL PROOFS CHECK
+
+==================== the same exact gate on the pipegen-emitted files
+gate7_exact_dot                          exit=0   want=0   ok         VERDICT: PASS
+gate7_match_dot                          exit=0   want=0   ok         VERDICT: PASS
+gate7_exact_l1                           exit=0   want=0   ok         VERDICT: PASS
+gate7_match_l1                           exit=0   want=0   ok         VERDICT: PASS
+gate7_exact_l2                           exit=0   want=0   ok         VERDICT: PASS
+gate7_match_l2                           exit=0   want=0   ok         VERDICT: PASS
+gate7_exact_ham                          exit=0   want=0   ok         VERDICT: PASS
+gate7_match_ham                          exit=0   want=0   ok         VERDICT: PASS
+gate7_exact_osl                          exit=0   want=0   ok         VERDICT: PASS
+gate7_match_osl                          exit=0   want=0   ok         VERDICT: PASS
+gate7_exact_qz7                          exit=0   want=0   ok         VERDICT: PASS
+gate7_match_qz7                          exit=0   want=0   ok         VERDICT: PASS
+
+==================== source-chain controls: well-typed edits (lowered program changes; gate and/or kernel contract decide)
+gate7_ctl_l1_drop_abs_exact              exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+gate7_ctl_l1_drop_abs_match              exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+gate7_ctl_l1_abs_to_sq_exact             exit=0   want=0   ok         VERDICT: PASS
+gate7_ctl_l1_abs_to_sq_match             exit=0   want=0   ok         VERDICT: PASS
+gate7_ctl_l1_extra_sq_exact              exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+gate7_ctl_l1_extra_sq_match              exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+gate7_ctl_dot_to_sub_exact               exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+gate7_ctl_dot_to_sub_match               exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+gate7_ctl_dot_extra_abs_exact            exit=3   want=3   ok         VERDICT: IR MISMATCH
+gate7_ctl_dot_extra_abs_match            exit=5   want=5   ok         VERDICT: UNCERTIFIED (matching but uncertified program)
+gate7_ctl_ham_swap_order_exact           exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+gate7_ctl_ham_swap_order_match           exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+gate7_ctl_ham_mul_zip_exact              exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+gate7_ctl_ham_mul_zip_match              exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+gate7_ctl_osl_to_abs_exact               exit=0   want=0   ok         VERDICT: PASS
+gate7_ctl_osl_to_abs_match               exit=0   want=0   ok         VERDICT: PASS
+gate7_ctl_osl_twice_exact                exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+gate7_ctl_osl_twice_match                exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+gate7_ctl_l2_to_mul_exact                exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+gate7_ctl_l2_to_mul_match                exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+-- the two legitimately different valid chains pass as another kernel, and fail their intended kernel's pairing:
+gate7_ctl_l1_abs_to_sq_vs_l1_prog        exit=3   want=3   ok         VERDICT: IR MISMATCH
+gate7_ctl_osl_to_abs_vs_osl_prog         exit=3   want=3   ok         VERDICT: IR MISMATCH
+gate7_ctl_dot_extra_abs_vs_dot_prog      exit=3   want=3   ok         VERDICT: IR MISMATCH
+gate7_gen_l1C_vs_gen_l2prog              exit=3   want=3   ok         VERDICT: IR MISMATCH
+gate7_gen_hamC_vs_gen_oslprog            exit=3   want=3   ok         VERDICT: IR MISMATCH
+gate7_gen_l1prog_tampered                exit=4   want=4   ok         BEND REJECT: file is not exactly the generated preamble + `def prog() -> K.Stmts:` + one term
+
+==================== source-chain controls: ill-typed chains must not elaborate (exit 1); the positive must (exit 0)
+chain_type_ok_positive                   exit=0   want=0   ok         
+chain_ty_missing_zip                     exit=1   want=1   ok         ../pipe_controls/ty_missing_zip.lean:3:19: error: failed to synthesize
+chain_ty_map_before_zip                  exit=1   want=1   ok         ../pipe_controls/ty_map_before_zip.lean:3:19: error: failed to synthesize
+chain_ty_missing_terminal                exit=1   want=1   ok         ../pipe_controls/ty_missing_terminal.lean:3:19: error: type mismatch
+chain_ty_stage_after_terminal            exit=1   want=1   ok         ../pipe_controls/ty_stage_after_terminal.lean:3:19: error: invalid field 'loop', the environment does not cont
+chain_ty_two_zips                        exit=1   want=1   ok         ../pipe_controls/ty_two_zips.lean:3:19: error: failed to synthesize
+chain_ty_terminal_first                  exit=1   want=1   ok         ../pipe_controls/ty_terminal_first.lean:3:19: error: failed to synthesize
+chain_ty_double_terminal                 exit=1   want=1   ok         ../pipe_controls/ty_double_terminal.lean:3:19: error: invalid field 'loop', the environment does not contain '
+chain_ty_unsupported_callback            exit=1   want=1   ok         ../pipe_controls/ty_unsupported_callback.lean:3:19: error: failed to synthesize
+
+==================== summary
+TOTAL=268 UNEXPECTED=0
+SCRIPT_EXIT=0
+
+######## 11. pipegen per-chain report (from the clean replay)
+dot: chain={ e := { z := Pipe.ZipFn.multiply, ms := [] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Mul, IR.Op.Acc]] derived_guard=131071 checker_bound=131071
+  in-process exact gate: PASS (term = lower chain)
+  contract[dot] den=ref on 10 deterministic vectors: OK
+l1: chain={ e := { z := Pipe.ZipFn.subtract, ms := [Pipe.MapFn.abs] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.AbsT, IR.Op.Acc]] derived_guard=8421504 checker_bound=8421504
+  in-process exact gate: PASS (term = lower chain)
+  contract[l1] den=ref on 10 deterministic vectors: OK
+l2: chain={ e := { z := Pipe.ZipFn.subtract, ms := [Pipe.MapFn.square] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.Sq, IR.Op.Acc]] derived_guard=33025 checker_bound=33025
+  in-process exact gate: PASS (term = lower chain)
+  contract[l2] den=ref on 10 deterministic vectors: OK
+ham: chain={ e := { z := Pipe.ZipFn.subtract, ms := [Pipe.MapFn.nonzero] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.Ne0, IR.Op.Acc]] derived_guard=2147483647 checker_bound=2147483647
+  in-process exact gate: PASS (term = lower chain)
+  contract[ham] den=ref on 10 deterministic vectors: OK
+osl: chain={ e := { z := Pipe.ZipFn.subtract, ms := [Pipe.MapFn.clampNeg] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.Pos, IR.Op.Acc]] derived_guard=8421504 checker_bound=8421504
+  in-process exact gate: PASS (term = lower chain)
+  contract[osl] den=ref on 10 deterministic vectors: OK
+qz7: chain={ e := { z := Pipe.ZipFn.subtract, ms := [Pipe.MapFn.abs] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.AbsT, IR.Op.Acc]] derived_guard=8421504 checker_bound=8421504
+  in-process exact gate: PASS (term = lower chain)
+  contract[l1] den=ref on 10 deterministic vectors: OK
+l1_drop_abs: chain={ e := { z := Pipe.ZipFn.subtract, ms := [] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.Acc]] derived_guard=8421504 checker_bound=131071
+  in-process exact gate: REJECT C: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.Dir.inc "stddef.h", C.Dir.inc "stdint.h", C.Dir.dfn "I8DOT_MAX_N" 8421504])
+  contract[l1] den=ref on 10 deterministic vectors: FAIL
+l1_abs_to_sq: chain={ e := { z := Pipe.ZipFn.subtract, ms := [Pipe.MapFn.square] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.Sq, IR.Op.Acc]] derived_guard=33025 checker_bound=33025
+  in-process exact gate: PASS (term = lower chain)
+  contract[l1] den=ref on 10 deterministic vectors: FAIL
+l1_extra_sq: chain={ e := { z := Pipe.ZipFn.subtract, ms := [Pipe.MapFn.abs, Pipe.MapFn.square] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.AbsT, IR.Op.Sq, IR.Op.Acc]] derived_guard=33025 checker_bound=131071
+  in-process exact gate: REJECT C: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.Dir.inc "stddef.h", C.Dir.inc "stdint.h", C.Dir.dfn "I8DOT_MAX_N" 33025])
+  contract[l1] den=ref on 10 deterministic vectors: FAIL
+dot_to_sub: chain={ e := { z := Pipe.ZipFn.subtract, ms := [] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.Acc]] derived_guard=8421504 checker_bound=131071
+  in-process exact gate: REJECT C: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.Dir.inc "stddef.h", C.Dir.inc "stdint.h", C.Dir.dfn "I8DOT_MAX_N" 8421504])
+  contract[dot] den=ref on 10 deterministic vectors: FAIL
+dot_extra_abs: chain={ e := { z := Pipe.ZipFn.multiply, ms := [Pipe.MapFn.abs] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Mul, IR.Op.AbsT, IR.Op.Acc]] derived_guard=131071 checker_bound=131071
+  in-process exact gate: MISMATCH
+  contract[dot] den=ref on 10 deterministic vectors: FAIL
+ham_swap_order: chain={ e := { z := Pipe.ZipFn.subtract, ms := [Pipe.MapFn.abs, Pipe.MapFn.nonzero] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.AbsT, IR.Op.Ne0, IR.Op.Acc]] derived_guard=2147483647 checker_bound=131071
+  in-process exact gate: REJECT C: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.Dir.inc "stddef.h", C.Dir.inc "stdint.h", C.Dir.dfn "I8DOT_MAX_N" 2147483647])
+  contract[ham] den=ref on 10 deterministic vectors: OK
+ham_mul_zip: chain={ e := { z := Pipe.ZipFn.multiply, ms := [Pipe.MapFn.nonzero] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Mul, IR.Op.Ne0, IR.Op.Acc]] derived_guard=2147483647 checker_bound=131071
+  in-process exact gate: REJECT C: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.Dir.inc "stddef.h", C.Dir.inc "stdint.h", C.Dir.dfn "I8DOT_MAX_N" 2147483647])
+  contract[ham] den=ref on 10 deterministic vectors: FAIL
+osl_to_abs: chain={ e := { z := Pipe.ZipFn.subtract, ms := [Pipe.MapFn.abs] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.AbsT, IR.Op.Acc]] derived_guard=8421504 checker_bound=8421504
+  in-process exact gate: PASS (term = lower chain)
+  contract[osl] den=ref on 10 deterministic vectors: FAIL
+osl_twice: chain={ e := { z := Pipe.ZipFn.subtract, ms := [Pipe.MapFn.clampNeg, Pipe.MapFn.clampNeg] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Sub, IR.Op.Pos, IR.Op.Pos, IR.Op.Acc]] derived_guard=8421504 checker_bound=131071
+  in-process exact gate: REJECT C: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.Dir.inc "stddef.h", C.Dir.inc "stdint.h", C.Dir.dfn "I8DOT_MAX_N" 8421504])
+  contract[osl] den=ref on 10 deterministic vectors: OK
+l2_to_mul: chain={ e := { z := Pipe.ZipFn.multiply, ms := [Pipe.MapFn.square] }, r := Pipe.RedFn.sum }
+  lowered=[IR.PS.Loop [IR.Op.LdA, IR.Op.LdB, IR.Op.Mul, IR.Op.Sq, IR.Op.Acc]] derived_guard=7 checker_bound=131071
+  in-process exact gate: REJECT C: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.Dir.inc "stddef.h", C.Dir.inc "stdint.h", C.Dir.dfn "I8DOT_MAX_N" 7])
+  contract[l2] den=ref on 10 deterministic vectors: FAIL
+exit=0
+
+######## 12. axiom audit output (clean replay)
+'Proofs.Ag.bind' does not depend on any axioms
+'Proofs.execBody_append' depends on axioms: [propext]
+'Proofs.mask_eq' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.op_sim' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.body_sim' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.drop_take_len' depends on axioms: [propext]
+'Proofs.loop_sim' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.prog_sim' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.sound_render' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.exactCert_cases' depends on axioms: [propext]
+'Proofs.certified_cases' depends on axioms: [propext]
+'Proofs.exactCert_certified' depends on axioms: [propext]
+'Proofs.gate_pass' depends on axioms: [propext]
+'Proofs.mapO_shape' depends on axioms: [propext, Quot.sound]
+'Proofs.recovered_shape' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.gate_pass_conditional_sim' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.prod_bound' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.render_pos' does not depend on any axioms
+'Proofs.render_wrap' does not depend on any axioms
+'Proofs.pos_loop_total' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.wrap_loop_total' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.ir_pos_loop' depends on axioms: [propext]
+'Proofs.ir_pos_exact' depends on axioms: [propext]
+'Proofs.cRun_pos' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.cRun_wrap' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.op_total' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.body_total' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.cert_loop' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.cert_loop_acc' depends on axioms: [propext, Quot.sound]
+'Proofs.cert_run' depends on axioms: [propext, Quot.sound]
+'Proofs.cert_total' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.cert_gate' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.sq_bound' depends on axioms: [propext, Quot.sound]
+'Proofs.absT_eq_abs' depends on axioms: [propext]
+'Proofs.ne0_eq_bit_abs' depends on axioms: [propext, Quot.sound]
+'Proofs.ne0_ne_bit' depends on axioms: [propext]
+'Proofs.guard_tight' does not depend on any axioms
+'Proofs.elem_bound_attained' does not depend on any axioms
+'Proofs.bound_values' does not depend on any axioms
+'Proofs.refRed_dot' depends on axioms: [propext]
+'Proofs.refRed_l1' depends on axioms: [propext]
+'Proofs.refRed_l2' depends on axioms: [propext]
+'Proofs.refRed_ham' depends on axioms: [propext, Quot.sound]
+'Proofs.refRed_osl' depends on axioms: [propext, Quot.sound]
+'Proofs.ir_exact_run' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.wrap_match_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.wrapIR_ne_posIR' does not depend on any axioms
+'Proofs.ir_witness_wrap' does not depend on any axioms
+'Proofs.ir_witness_pos' does not depend on any axioms
+'Proofs.ir_witness_buf_mats' does not depend on any axioms
+'Proofs.ir_witness_buf_acc' does not depend on any axioms
+'Proofs.gate_total' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.exact_gate_requires_exact' depends on axioms: [propext]
+'Proofs.exactCert_wrap' does not depend on any axioms
+'Proofs.exact_gate_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.exact_gate_zero' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Proofs.gate_requires_certified' depends on axioms: [propext]
+'Proofs.overflowIR_not_certified' does not depend on any axioms
+'Proofs.overflow_faults' depends on axioms: [propext]
+'Proofs.zadd_val' depends on axioms: [propext, Quot.sound]
+'Proofs.zmul_val' depends on axioms: [propext, Quot.sound]
+'Link.nat_add' depends on axioms: [propext, Quot.sound]
+'Link.nat_sub' depends on axioms: [propext]
+'Link.nat_mul' depends on axioms: [propext, Quot.sound]
+'Link.divmod_go' depends on axioms: [propext, Quot.sound]
+'Link.nat_mod' depends on axioms: [propext, Quot.sound]
+'Link.cmp_spec' depends on axioms: [propext]
+'Link.is_lt' depends on axioms: [propext]
+'Link.is_eq' depends on axioms: [propext]
+'Link.is_le' depends on axioms: [propext, Quot.sound]
+'Link.zadd_v' depends on axioms: [propext, Quot.sound]
+'Link.zmul_v' depends on axioms: [propext, Quot.sound]
+'Link.zsub_v' depends on axioms: [propext, Quot.sound]
+'Link.zabs_v' depends on axioms: [propext, Quot.sound]
+'Link.zpos_v' depends on axioms: [propext, Quot.sound]
+'Link.zbit_v' depends on axioms: [propext, Quot.sound]
+'Link.zne0_v' depends on axioms: [propext, Quot.sound]
+'Link.w8_nat_v' depends on axioms: [propext, Quot.sound]
+'Link.wrap8_v' depends on axioms: [propext, Quot.sound]
+'Link.hd_v' depends on axioms: [propext]
+'Link.tl_v' depends on axioms: [propext]
+'Link.zsnoc_v' depends on axioms: [propext]
+'Link.exec_v' depends on axioms: [propext, Quot.sound]
+'Link.exec_body_v' depends on axioms: [propext, Quot.sound]
+'Link.run_loop_v' depends on axioms: [propext, Quot.sound]
+'Link.start_v' depends on axioms: [propext, Quot.sound]
+'Link.run_prog_v' depends on axioms: [propext, Quot.sound]
+'Link.run_v' depends on axioms: [propext, Quot.sound]
+'Link.acc_of_v' does not depend on any axioms
+'Link.mats_of_v' does not depend on any axioms
+'Link.dot_v' depends on axioms: [propext, Quot.sound]
+'Link.prog_pos_v' does not depend on any axioms
+'Link.prog_wrap_v' does not depend on any axioms
+'Link.prog_buf_v' does not depend on any axioms
+'Link.prog_l1_v' does not depend on any axioms
+'Link.prog_l2_v' does not depend on any axioms
+'Link.prog_ham_v' does not depend on any axioms
+'Link.prog_osl_v' does not depend on any axioms
+'Link.hamd_v' depends on axioms: [propext, Quot.sound]
+'Link.posd_v' depends on axioms: [propext, Quot.sound]
+'Link.sad_v' depends on axioms: [propext, Quot.sound]
+'Link.ssd_v' depends on axioms: [propext, Quot.sound]
+'Link.bend_l1_eq_sad' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Link.bend_l2_eq_ssd' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Link.bend_ham_eq_hamd' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Link.bend_osl_eq_posd' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Link.run_loop_pos_acc' depends on axioms: [propext]
+'Link.bend_law_exact_on_translation' depends on axioms: [propext]
+'Link.ir_loop_mats' depends on axioms: [propext]
+'Link.bend_law_nobuf_on_translation' depends on axioms: [propext, Quot.sound]
+'Link.zsv_encs' depends on axioms: [propext, Quot.sound]
+'Link.gate_total_bend' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Link.exact_gate_bend' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Link.match_gate_bend_wrap' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Pipe.ir_execBody_append' does not depend on any axioms
+'Pipe.map_exec' depends on axioms: [propext, Quot.sound]
+'Pipe.maps_exec' depends on axioms: [propext, Quot.sound]
+'Pipe.body_exec' depends on axioms: [propext, Quot.sound]
+'Pipe.loop_acc' depends on axioms: [propext, Quot.sound]
+'Pipe.maps_pointwise' depends on axioms: [propext]
+'Pipe.den_pointwise' depends on axioms: [propext]
+'Pipe.fusion' depends on axioms: [propext, Quot.sound]
+'Pipe.lower_fused' depends on axioms: [propext, Quot.sound]
+'Pipe.chain_gate_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Facts.lower_dot' does not depend on any axioms
+'Facts.lower_l1' does not depend on any axioms
+'Facts.lower_l2' does not depend on any axioms
+'Facts.lower_ham' does not depend on any axioms
+'Facts.lower_osl' does not depend on any axioms
+'Facts.lower_qz7' does not depend on any axioms
+'Facts.guard_dot' does not depend on any axioms
+'Facts.guard_l1' does not depend on any axioms
+'Facts.guard_l2' does not depend on any axioms
+'Facts.guard_ham' does not depend on any axioms
+'Facts.guard_osl' does not depend on any axioms
+'Facts.den_dot' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Facts.den_l1' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Facts.den_l2' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Facts.den_ham' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Facts.den_osl' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Facts.l1_abs_to_sq_differs' does not depend on any axioms
+'Facts.osl_to_abs_differs' does not depend on any axioms
+'Facts.l1_drop_abs_differs' does not depend on any axioms
+'Facts.ham_swap_same_meaning' depends on axioms: [propext, Quot.sound]
+'Facts.ham_swap_lowers_differently' does not depend on any axioms
+'GenLink.bend_chain' depends on axioms: [propext, Quot.sound]
+'GenLink.bend_chain_ints' depends on axioms: [propext, Quot.sound]
+'GenLink.chain_run_nobuf' depends on axioms: [propext, Quot.sound]
+'GenLink.bend_chain_nobuf' depends on axioms: [propext, Quot.sound]
+'GenLink.gen_dot_term' does not depend on any axioms
+'GenLink.gen_l1_term' does not depend on any axioms
+'GenLink.gen_l2_term' does not depend on any axioms
+'GenLink.gen_ham_term' does not depend on any axioms
+'GenLink.gen_osl_term' does not depend on any axioms
+'GenLink.gen_qz7_term' does not depend on any axioms
+'GenLink.gen_same_terms' does not depend on any axioms
+'GenLink.gen_dot_den' depends on axioms: [propext, Quot.sound]
+'GenLink.gen_l1_den' depends on axioms: [propext, Quot.sound]
+'GenLink.gen_l2_den' depends on axioms: [propext, Quot.sound]
+'GenLink.gen_ham_den' depends on axioms: [propext, Quot.sound]
+'GenLink.gen_osl_den' depends on axioms: [propext, Quot.sound]
+'GenLink.gen_qz7_den' depends on axioms: [propext, Quot.sound]
+exit=0
+
+######## 13. benchmark plan (written before timing)
+# i8red7 benchmark plan (written before any i8red7 timing)
+
+Identical protocol to i8red6 `PLAN_bench6.md` / i8red5 `PLAN_bench.md` (both kept in this directory).
+The only intended difference is where the generated sources come from: the five timed generated
+kernels are `gen7/{dot,l1,l2,ham,osl}/i8dot.c`, emitted by the `.loop()` front door
+(`bridge/.lake/build/bin/pipegen`, chains in `bridge/Pipe/Chains.lean`). Their bytes equal i8red6's
+`variants/{pos,l1,l2,ham,osl}/i8dot.c` except line 1 (the provenance comment). Hand-written baselines
+`hand_*.c`, `bench.c`, `prep.py`, `analyze.py`, guards, ABI, flags, separate translation units, no LTO,
+pinning (taskset -c 2), 31 rotated rounds, two link layouts (A gen-first, B hand-first), dataset pin
+(SIFT10K siftsmall.tgz sha256 df5907f8...7a93, centered x-128, 100x10000 pairs at n=128) and the compiler
+matrix (gcc 11.4 / clang 14 x -O3 / -O3 -march=native) are unchanged.
+
+Fail-closed steps before compiling (no effect on timing): rerun pipegen into `work/pipegen` and require
+byte equality with `gen7/`; check `gen7/SHA256SUMS` (the hash lock); run `i8check exact` on each of the five
+gen7 pairs; record sha256 of every compiled source; re-check those hashes after timing.
+
+Primary: gcc -O3. Per kernel pass: generated/manual median ratio in [0.95, 1.05] in BOTH layouts.
+All-five success: all five pass in both layouts under gcc -O3. Other configs reported in full, not used
+for the verdict. Run 1 is the result of record; run 2 uses the identical protocol to check
+reproducibility. Both are reported; no run is discarded. A miss is investigated (code shape, noise), not
+re-defined.
+
+######## 14.1 benchmark run 1
+work/data/siftsmall_base.fvecs: OK
+work/data/siftsmall_groundtruth.ivecs: OK
+work/data/siftsmall_learn.fvecs: OK
+work/data/siftsmall_query.fvecs: OK
+work/data/siftsmall_query.fvecs: 100 rows x 128 dims, all 12800 coordinates exact integers in [0,255] (min 0 max 169)
+work/data/siftsmall_base.fvecs: 10000 rows x 128 dims, all 1280000 coordinates exact integers in [0,255] (min 0 max 180)
+work/data/siftsmall_groundtruth.ivecs: 100 rows x 100 neighbour ids in [0,10000)
+CPU(s):                                  8
+Model name:                              Intel(R) Xeon(R) Processor
+Thread(s) per core:                      1
+Linux 6.8.0-1060-aws x86_64
+gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
+Ubuntu clang version 14.0.0-1ubuntu1.1
+pinning: taskset -c 2; rounds=31
+governor: n/a
+VERDICT: PASS
+VERDICT: PASS
+VERDICT: PASS
+VERDICT: PASS
+VERDICT: PASS
+gcc_O3 dot normalized-asm gen-vs-hand: differs(56 lines; gen 174 hand 174 insns)
+gcc_O3 l1 normalized-asm gen-vs-hand: identical
+gcc_O3 l2 normalized-asm gen-vs-hand: identical
+gcc_O3 ham normalized-asm gen-vs-hand: identical
+gcc_O3 osl normalized-asm gen-vs-hand: identical
+timed gcc_O3 layout A
+timed gcc_O3 layout B
+gcc_O3marchnative dot normalized-asm gen-vs-hand: differs(58 lines; gen 202 hand 202 insns)
+gcc_O3marchnative l1 normalized-asm gen-vs-hand: identical
+gcc_O3marchnative l2 normalized-asm gen-vs-hand: identical
+gcc_O3marchnative ham normalized-asm gen-vs-hand: identical
+gcc_O3marchnative osl normalized-asm gen-vs-hand: identical
+timed gcc_O3marchnative layout A
+timed gcc_O3marchnative layout B
+clang_O3 dot normalized-asm gen-vs-hand: identical
+clang_O3 l1 normalized-asm gen-vs-hand: identical
+clang_O3 l2 normalized-asm gen-vs-hand: identical
+clang_O3 ham normalized-asm gen-vs-hand: identical
+clang_O3 osl normalized-asm gen-vs-hand: identical
+timed clang_O3 layout A
+timed clang_O3 layout B
+clang_O3marchnative dot normalized-asm gen-vs-hand: identical
+clang_O3marchnative l1 normalized-asm gen-vs-hand: identical
+clang_O3marchnative l2 normalized-asm gen-vs-hand: identical
+clang_O3marchnative ham normalized-asm gen-vs-hand: identical
+clang_O3marchnative osl normalized-asm gen-vs-hand: identical
+timed clang_O3marchnative layout A
+timed clang_O3marchnative layout B
+correct dot: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=1339476007622
+correct l1: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=4184838222
+correct l2: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=299992732756
+correct ham: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=117675068
+correct osl: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=2058208211
+l2 vs published: top1 ordered 100/100, top10 ordered 100/100, top100 tie-aware distances 100/100, top100 identical ordered ids (index tie-break) 91/100
+cfg layout kernel | gen median [IQR] (min-max) ms | hand median [IQR] (min-max) ms | ratio | signed% | strict
+gcc_O3             A dot  | 14.230 [0.249] (14.100-15.651) | 14.113 [0.292] (14.009-15.253) | 1.0083 | +0.83% | PASS
+gcc_O3             A l1   | 16.914 [0.284] (16.747-17.848) | 16.856 [0.139] (16.694-17.717) | 1.0034 | +0.34% | PASS
+gcc_O3             A l2   | 9.348 [0.214] (9.228-9.791) | 9.347 [0.155] (9.129-10.075) | 1.0001 | +0.01% | PASS
+gcc_O3             A ham  | 9.372 [0.134] (9.272-10.525) | 9.382 [0.056] (9.270-12.884) | 0.9990 | -0.10% | PASS
+gcc_O3             A osl  | 15.256 [0.168] (15.037-17.264) | 15.246 [0.257] (15.050-16.921) | 1.0006 | +0.06% | PASS
+gcc_O3             B dot  | 13.787 [0.140] (13.673-15.116) | 13.913 [0.122] (13.764-14.760) | 0.9909 | -0.91% | PASS
+gcc_O3             B l1   | 16.636 [0.208] (16.473-21.977) | 16.665 [0.201] (16.473-17.561) | 0.9983 | -0.17% | PASS
+gcc_O3             B l2   | 9.050 [0.169] (8.906-9.550) | 9.052 [0.102] (8.971-12.818) | 0.9999 | -0.01% | PASS
+gcc_O3             B ham  | 9.040 [0.072] (8.901-9.863) | 9.011 [0.117] (8.898-10.086) | 1.0032 | +0.32% | PASS
+gcc_O3             B osl  | 14.962 [0.165] (14.773-16.031) | 14.985 [0.156] (14.792-15.602) | 0.9984 | -0.16% | PASS
+clang_O3           A dot  | 23.224 [0.387] (22.982-41.553) | 23.376 [0.306] (23.016-29.602) | 0.9935 | -0.65% | PASS
+clang_O3           A l1   | 32.379 [0.214] (32.025-33.970) | 32.393 [0.520] (32.051-35.771) | 0.9996 | -0.04% | PASS
+clang_O3           A l2   | 37.004 [0.582] (36.688-40.167) | 37.121 [0.797] (36.575-40.757) | 0.9968 | -0.32% | PASS
+clang_O3           A ham  | 18.737 [0.124] (18.497-19.672) | 18.747 [0.211] (18.536-19.447) | 0.9995 | -0.05% | PASS
+clang_O3           A osl  | 29.246 [0.312] (28.860-50.508) | 29.257 [0.267] (28.975-33.663) | 0.9996 | -0.04% | PASS
+clang_O3           B dot  | 23.381 [0.635] (23.021-25.343) | 23.343 [0.421] (22.965-31.212) | 1.0016 | +0.16% | PASS
+clang_O3           B l1   | 32.514 [0.838] (32.135-54.707) | 32.745 [0.808] (31.979-47.555) | 0.9929 | -0.71% | PASS
+clang_O3           B l2   | 37.528 [0.960] (36.592-50.182) | 37.380 [1.758] (36.679-54.535) | 1.0039 | +0.39% | PASS
+clang_O3           B ham  | 18.954 [0.891] (18.475-23.005) | 18.908 [0.387] (18.418-32.251) | 1.0024 | +0.24% | PASS
+clang_O3           B osl  | 29.496 [0.846] (28.790-31.744) | 29.310 [0.380] (28.883-32.823) | 1.0063 | +0.63% | PASS
+clang_O3marchnative A dot  | 9.549 [0.090] (9.406-10.300) | 9.547 [0.276] (9.381-11.001) | 1.0001 | +0.01% | PASS
+clang_O3marchnative A l1   | 9.285 [0.116] (9.153-11.119) | 9.305 [0.328] (9.104-10.494) | 0.9978 | -0.22% | PASS
+clang_O3marchnative A l2   | 10.811 [0.387] (10.624-13.021) | 10.845 [0.385] (10.628-13.002) | 0.9969 | -0.31% | PASS
+clang_O3marchnative A ham  | 8.684 [0.224] (8.572-10.633) | 8.702 [0.369] (8.527-10.590) | 0.9978 | -0.22% | PASS
+clang_O3marchnative A osl  | 9.210 [0.220] (9.035-10.278) | 9.176 [0.086] (9.053-10.583) | 1.0036 | +0.36% | PASS
+clang_O3marchnative B dot  | 9.507 [0.194] (9.400-11.178) | 9.516 [0.211] (9.386-14.194) | 0.9991 | -0.09% | PASS
+clang_O3marchnative B l1   | 9.239 [0.124] (9.113-10.693) | 9.242 [0.138] (9.133-10.353) | 0.9997 | -0.03% | PASS
+clang_O3marchnative B l2   | 10.732 [0.114] (10.595-11.604) | 10.665 [0.124] (10.565-12.240) | 1.0062 | +0.62% | PASS
+clang_O3marchnative B ham  | 8.653 [0.131] (8.553-9.745) | 8.664 [0.218] (8.534-9.830) | 0.9988 | -0.12% | PASS
+clang_O3marchnative B osl  | 9.154 [0.165] (9.008-10.011) | 9.127 [0.074] (9.030-10.118) | 1.0030 | +0.30% | PASS
+gcc_O3marchnative  A dot  | 12.724 [0.463] (12.364-17.377) | 12.621 [0.434] (12.428-27.377) | 1.0081 | +0.81% | PASS
+gcc_O3marchnative  A l1   | 12.530 [0.245] (12.343-52.554) | 12.581 [0.400] (12.435-17.392) | 0.9959 | -0.41% | PASS
+gcc_O3marchnative  A l2   | 6.463 [0.196] (6.306-7.628) | 6.467 [0.186] (6.287-21.551) | 0.9994 | -0.06% | PASS
+gcc_O3marchnative  A ham  | 9.505 [0.227] (9.286-17.646) | 9.518 [0.270] (9.329-16.781) | 0.9986 | -0.14% | PASS
+gcc_O3marchnative  A osl  | 12.648 [0.319] (12.429-20.105) | 12.735 [0.433] (12.346-22.514) | 0.9931 | -0.69% | PASS
+gcc_O3marchnative  B dot  | 12.463 [0.069] (12.348-13.773) | 12.440 [0.075] (12.361-12.646) | 1.0019 | +0.19% | PASS
+gcc_O3marchnative  B l1   | 12.467 [0.124] (12.360-14.461) | 12.463 [0.155] (12.351-13.822) | 1.0003 | +0.03% | PASS
+gcc_O3marchnative  B l2   | 6.570 [0.100] (6.470-8.436) | 6.548 [0.109] (6.457-7.089) | 1.0035 | +0.35% | PASS
+gcc_O3marchnative  B ham  | 9.477 [0.051] (9.407-9.715) | 9.486 [0.137] (9.392-12.366) | 0.9991 | -0.09% | PASS
+gcc_O3marchnative  B osl  | 12.457 [0.063] (12.376-12.920) | 12.462 [0.116] (12.345-13.242) | 0.9996 | -0.04% | PASS
+
+per-config verdict (layout-sensitive = passes in one layout only):
+gcc_O3             dot  A=PASS B=PASS
+gcc_O3             l1   A=PASS B=PASS
+gcc_O3             l2   A=PASS B=PASS
+gcc_O3             ham  A=PASS B=PASS
+gcc_O3             osl  A=PASS B=PASS
+gcc_O3             10/10 kernel-layout cells within 5%
+clang_O3           dot  A=PASS B=PASS
+clang_O3           l1   A=PASS B=PASS
+clang_O3           l2   A=PASS B=PASS
+clang_O3           ham  A=PASS B=PASS
+clang_O3           osl  A=PASS B=PASS
+clang_O3           10/10 kernel-layout cells within 5%
+clang_O3marchnative dot  A=PASS B=PASS
+clang_O3marchnative l1   A=PASS B=PASS
+clang_O3marchnative l2   A=PASS B=PASS
+clang_O3marchnative ham  A=PASS B=PASS
+clang_O3marchnative osl  A=PASS B=PASS
+clang_O3marchnative 10/10 kernel-layout cells within 5%
+gcc_O3marchnative  dot  A=PASS B=PASS
+gcc_O3marchnative  l1   A=PASS B=PASS
+gcc_O3marchnative  l2   A=PASS B=PASS
+gcc_O3marchnative  ham  A=PASS B=PASS
+gcc_O3marchnative  osl  A=PASS B=PASS
+gcc_O3marchnative  10/10 kernel-layout cells within 5%
+
+ratio range over all configs: 0.9909 .. 1.0083
+PRIMARY (gcc -O3, both layouts) ALL-FIVE 5% TARGET: MET
+--- host.txt
+CPU(s):                                  8
+Model name:                              Intel(R) Xeon(R) Processor
+Thread(s) per core:                      1
+Linux 6.8.0-1060-aws x86_64
+gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
+Ubuntu clang version 14.0.0-1ubuntu1.1
+pinning: taskset -c 2; rounds=31
+governor: n/a
+--- cmp host.txt with i8red6 run1: identical
+--- gen7 lock check
+dot/i8dot.c: OK
+l1/i8dot.c: OK
+l2/i8dot.c: OK
+ham/i8dot.c: OK
+osl/i8dot.c: OK
+qz7/i8dot.c: OK
+dot/prog.bend: OK
+l1/prog.bend: OK
+l2/prog.bend: OK
+ham/prog.bend: OK
+osl/prog.bend: OK
+qz7/prog.bend: OK
+--- compiled sources + recheck
+07099e7e47020e72c6c4ac78a94b0dc75fa03fdb19a7e6f7d94c8ecedf973fba  ../gen7/dot/i8dot.c
+3bd36305d87016ddc868777526f8a50e09c5b98904b8db2fb4d823d10ae79156  ../gen7/l1/i8dot.c
+5f0fbfa8eb919738a818244108b289ec03b1980b269793f1a4f00dde5e156804  ../gen7/l2/i8dot.c
+ca6de4349eafa37f0027a6e56679b99c93be3b92d2fc823b4c45af8501b1216a  ../gen7/ham/i8dot.c
+ed6fa7d92cf56122e52c412141253c444852707d6c89edbe6ada113302677a0e  ../gen7/osl/i8dot.c
+94b9d27a1ca3302bdc410522284a3eb83189a48a014bef066ebd86e4e7bc57bc  ../gen7/dot/prog.bend
+476f5836751a63da5bc5dcfea1c1d06523a8c3d3a1c00e71c9ebdb741da4f1a0  ../gen7/l1/prog.bend
+ad82c0b210e953b96608887c120575bde6026bc47461d4dcb9269520d407414b  ../gen7/l2/prog.bend
+2cadabbf845383a343c2e139c557f91469919b1bb3a44c8c46ff255b69efcea6  ../gen7/ham/prog.bend
+a7bb95fb4e6de3d64f482f9ed18c7019876b6fbb1b3f5b644062b25cfc00b0e1  ../gen7/osl/prog.bend
+f6094b5a3fd741540f035da4c82e6598dccb787c97d7ace59108e00b893a8351  hand_dot.c
+fee0f11251c73df118191ab35faf922c583db1330df5b7ced865971567a4525e  hand_ham.c
+ac3611859537647c34f127d9d6f54d927d84939dc1da59b002cd4131b47d671d  hand_l1.c
+e30c92a39e478f42f3b1ff54316cd75b9fdb0940ed131f2622987ca03bf107f8  hand_l2.c
+e9ab3d9c639b8155716c70017415b6c7ae5aeb6a7f9c9a31fc80df65679d6e26  hand_osl.c
+00983eb77f1b52638047dea314b57dacdee64dd563b8b2799ba312872532a799  bench.c
+../gen7/dot/i8dot.c: OK
+../gen7/l1/i8dot.c: OK
+../gen7/l2/i8dot.c: OK
+../gen7/ham/i8dot.c: OK
+../gen7/osl/i8dot.c: OK
+../gen7/dot/prog.bend: OK
+../gen7/l1/prog.bend: OK
+../gen7/l2/prog.bend: OK
+../gen7/ham/prog.bend: OK
+../gen7/osl/prog.bend: OK
+hand_dot.c: OK
+hand_ham.c: OK
+hand_l1.c: OK
+hand_l2.c: OK
+hand_osl.c: OK
+bench.c: OK
+--- correctness
+correct dot: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=1339476007622
+correct l1: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=4184838222
+correct l2: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=299992732756
+correct ham: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=117675068
+correct osl: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=2058208211
+l2 vs published: top1 ordered 100/100, top10 ordered 100/100, top100 tie-aware distances 100/100, top100 identical ordered ids (index tie-break) 91/100
+--- codeshape
+gcc_O3 dot normalized-asm gen-vs-hand: differs(56 lines; gen 174 hand 174 insns)
+gcc_O3 l1 normalized-asm gen-vs-hand: identical
+gcc_O3 l2 normalized-asm gen-vs-hand: identical
+gcc_O3 ham normalized-asm gen-vs-hand: identical
+gcc_O3 osl normalized-asm gen-vs-hand: identical
+gcc_O3marchnative dot normalized-asm gen-vs-hand: differs(58 lines; gen 202 hand 202 insns)
+gcc_O3marchnative l1 normalized-asm gen-vs-hand: identical
+gcc_O3marchnative l2 normalized-asm gen-vs-hand: identical
+gcc_O3marchnative ham normalized-asm gen-vs-hand: identical
+gcc_O3marchnative osl normalized-asm gen-vs-hand: identical
+clang_O3 dot normalized-asm gen-vs-hand: identical
+clang_O3 l1 normalized-asm gen-vs-hand: identical
+clang_O3 l2 normalized-asm gen-vs-hand: identical
+clang_O3 ham normalized-asm gen-vs-hand: identical
+clang_O3 osl normalized-asm gen-vs-hand: identical
+clang_O3marchnative dot normalized-asm gen-vs-hand: identical
+clang_O3marchnative l1 normalized-asm gen-vs-hand: identical
+clang_O3marchnative l2 normalized-asm gen-vs-hand: identical
+clang_O3marchnative ham normalized-asm gen-vs-hand: identical
+clang_O3marchnative osl normalized-asm gen-vs-hand: identical
+--- imports
+gcc_O3 gen_dot.o undefined: []
+gcc_O3 gen_ham.o undefined: []
+gcc_O3 gen_l1.o undefined: []
+gcc_O3 gen_l2.o undefined: []
+gcc_O3 gen_osl.o undefined: []
+gcc_O3 hand_dot.o undefined: []
+gcc_O3 hand_ham.o undefined: []
+gcc_O3 hand_l1.o undefined: []
+gcc_O3 hand_l2.o undefined: []
+gcc_O3 hand_osl.o undefined: []
+gcc_O3marchnative gen_dot.o undefined: []
+gcc_O3marchnative gen_ham.o undefined: []
+gcc_O3marchnative gen_l1.o undefined: []
+gcc_O3marchnative gen_l2.o undefined: []
+gcc_O3marchnative gen_osl.o undefined: []
+gcc_O3marchnative hand_dot.o undefined: []
+gcc_O3marchnative hand_ham.o undefined: []
+gcc_O3marchnative hand_l1.o undefined: []
+gcc_O3marchnative hand_l2.o undefined: []
+gcc_O3marchnative hand_osl.o undefined: []
+clang_O3 gen_dot.o undefined: []
+clang_O3 gen_ham.o undefined: []
+clang_O3 gen_l1.o undefined: []
+clang_O3 gen_l2.o undefined: []
+clang_O3 gen_osl.o undefined: []
+clang_O3 hand_dot.o undefined: []
+clang_O3 hand_ham.o undefined: []
+clang_O3 hand_l1.o undefined: []
+clang_O3 hand_l2.o undefined: []
+clang_O3 hand_osl.o undefined: []
+clang_O3marchnative gen_dot.o undefined: []
+clang_O3marchnative gen_ham.o undefined: []
+clang_O3marchnative gen_l1.o undefined: []
+clang_O3marchnative gen_l2.o undefined: []
+clang_O3marchnative gen_osl.o undefined: []
+clang_O3marchnative hand_dot.o undefined: []
+clang_O3marchnative hand_ham.o undefined: []
+clang_O3marchnative hand_l1.o undefined: []
+clang_O3marchnative hand_l2.o undefined: []
+clang_O3marchnative hand_osl.o undefined: []
+
+######## 14.2 benchmark run 2
+work/data/siftsmall_base.fvecs: OK
+work/data/siftsmall_groundtruth.ivecs: OK
+work/data/siftsmall_learn.fvecs: OK
+work/data/siftsmall_query.fvecs: OK
+work/data/siftsmall_query.fvecs: 100 rows x 128 dims, all 12800 coordinates exact integers in [0,255] (min 0 max 169)
+work/data/siftsmall_base.fvecs: 10000 rows x 128 dims, all 1280000 coordinates exact integers in [0,255] (min 0 max 180)
+work/data/siftsmall_groundtruth.ivecs: 100 rows x 100 neighbour ids in [0,10000)
+CPU(s):                                  8
+Model name:                              Intel(R) Xeon(R) Processor
+Thread(s) per core:                      1
+Linux 6.8.0-1060-aws x86_64
+gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
+Ubuntu clang version 14.0.0-1ubuntu1.1
+pinning: taskset -c 2; rounds=31
+governor: n/a
+VERDICT: PASS
+VERDICT: PASS
+VERDICT: PASS
+VERDICT: PASS
+VERDICT: PASS
+gcc_O3 dot normalized-asm gen-vs-hand: differs(56 lines; gen 174 hand 174 insns)
+gcc_O3 l1 normalized-asm gen-vs-hand: identical
+gcc_O3 l2 normalized-asm gen-vs-hand: identical
+gcc_O3 ham normalized-asm gen-vs-hand: identical
+gcc_O3 osl normalized-asm gen-vs-hand: identical
+timed gcc_O3 layout A
+timed gcc_O3 layout B
+gcc_O3marchnative dot normalized-asm gen-vs-hand: differs(58 lines; gen 202 hand 202 insns)
+gcc_O3marchnative l1 normalized-asm gen-vs-hand: identical
+gcc_O3marchnative l2 normalized-asm gen-vs-hand: identical
+gcc_O3marchnative ham normalized-asm gen-vs-hand: identical
+gcc_O3marchnative osl normalized-asm gen-vs-hand: identical
+timed gcc_O3marchnative layout A
+timed gcc_O3marchnative layout B
+clang_O3 dot normalized-asm gen-vs-hand: identical
+clang_O3 l1 normalized-asm gen-vs-hand: identical
+clang_O3 l2 normalized-asm gen-vs-hand: identical
+clang_O3 ham normalized-asm gen-vs-hand: identical
+clang_O3 osl normalized-asm gen-vs-hand: identical
+timed clang_O3 layout A
+timed clang_O3 layout B
+clang_O3marchnative dot normalized-asm gen-vs-hand: identical
+clang_O3marchnative l1 normalized-asm gen-vs-hand: identical
+clang_O3marchnative l2 normalized-asm gen-vs-hand: identical
+clang_O3marchnative ham normalized-asm gen-vs-hand: identical
+clang_O3marchnative osl normalized-asm gen-vs-hand: identical
+timed clang_O3marchnative layout A
+timed clang_O3marchnative layout B
+correct dot: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=1339476007622
+correct l1: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=4184838222
+correct l2: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=299992732756
+correct ham: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=117675068
+correct osl: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=2058208211
+l2 vs published: top1 ordered 100/100, top10 ordered 100/100, top100 tie-aware distances 100/100, top100 identical ordered ids (index tie-break) 91/100
+cfg layout kernel | gen median [IQR] (min-max) ms | hand median [IQR] (min-max) ms | ratio | signed% | strict
+gcc_O3             A dot  | 14.138 [0.198] (13.842-14.811) | 13.991 [0.125] (13.835-14.315) | 1.0105 | +1.05% | PASS
+gcc_O3             A l1   | 16.856 [0.153] (16.646-19.240) | 16.799 [0.137] (16.588-19.646) | 1.0034 | +0.34% | PASS
+gcc_O3             A l2   | 9.246 [0.056] (9.114-10.949) | 9.302 [0.150] (9.064-9.916) | 0.9941 | -0.59% | PASS
+gcc_O3             A ham  | 9.264 [0.066] (9.127-9.953) | 9.273 [0.108] (9.135-9.632) | 0.9991 | -0.09% | PASS
+gcc_O3             A osl  | 15.175 [0.184] (15.005-16.237) | 15.145 [0.200] (14.921-18.644) | 1.0020 | +0.20% | PASS
+gcc_O3             B dot  | 13.861 [0.155] (13.682-15.419) | 13.924 [0.207] (13.671-16.310) | 0.9955 | -0.45% | PASS
+gcc_O3             B l1   | 16.652 [0.154] (16.484-19.390) | 16.637 [0.247] (16.507-18.861) | 1.0010 | +0.10% | PASS
+gcc_O3             B l2   | 9.021 [0.140] (8.823-10.340) | 9.036 [0.046] (8.939-10.485) | 0.9983 | -0.17% | PASS
+gcc_O3             B ham  | 9.034 [0.069] (8.920-10.578) | 9.008 [0.092] (8.910-10.844) | 1.0030 | +0.30% | PASS
+gcc_O3             B osl  | 14.932 [0.160] (14.780-17.778) | 14.936 [0.133] (14.834-17.564) | 0.9997 | -0.03% | PASS
+clang_O3           A dot  | 23.467 [2.589] (22.970-28.474) | 23.908 [2.756] (23.101-30.609) | 0.9816 | -1.84% | PASS
+clang_O3           A l1   | 33.256 [3.864] (32.140-39.001) | 33.473 [3.657] (32.021-54.620) | 0.9935 | -0.65% | PASS
+clang_O3           A l2   | 37.705 [4.366] (36.611-73.139) | 37.647 [4.364] (36.592-83.705) | 1.0015 | +0.15% | PASS
+clang_O3           A ham  | 18.933 [2.258] (18.480-41.351) | 19.214 [2.458] (18.494-51.038) | 0.9854 | -1.46% | PASS
+clang_O3           A osl  | 29.973 [3.839] (28.893-36.841) | 29.601 [3.903] (28.878-44.075) | 1.0125 | +1.25% | PASS
+clang_O3           B dot  | 23.360 [0.526] (23.044-37.340) | 23.325 [1.033] (22.967-32.176) | 1.0015 | +0.15% | PASS
+clang_O3           B l1   | 32.588 [1.314] (32.079-52.067) | 32.650 [1.759] (32.184-60.645) | 0.9981 | -0.19% | PASS
+clang_O3           B l2   | 37.270 [2.725] (36.763-52.883) | 37.212 [1.650] (36.781-59.917) | 1.0016 | +0.16% | PASS
+clang_O3           B ham  | 18.610 [0.976] (18.336-38.307) | 18.649 [0.658] (18.384-29.248) | 0.9979 | -0.21% | PASS
+clang_O3           B osl  | 29.346 [1.875] (29.019-42.274) | 29.345 [1.748] (28.908-41.130) | 1.0000 | +0.00% | PASS
+clang_O3marchnative A dot  | 9.628 [0.096] (9.548-10.267) | 9.613 [0.077] (9.529-10.459) | 1.0016 | +0.16% | PASS
+clang_O3marchnative A l1   | 9.320 [0.090] (9.281-10.514) | 9.354 [0.088] (9.283-9.979) | 0.9964 | -0.36% | PASS
+clang_O3marchnative A l2   | 10.813 [0.107] (10.714-11.795) | 10.789 [0.077] (10.706-11.540) | 1.0023 | +0.23% | PASS
+clang_O3marchnative A ham  | 8.935 [0.076] (8.868-9.708) | 8.940 [0.091] (8.880-9.512) | 0.9994 | -0.06% | PASS
+clang_O3marchnative A osl  | 9.267 [0.176] (9.188-10.119) | 9.266 [0.080] (9.187-10.092) | 1.0001 | +0.01% | PASS
+clang_O3marchnative B dot  | 9.521 [0.089] (9.378-11.434) | 9.494 [0.068] (9.384-10.630) | 1.0028 | +0.28% | PASS
+clang_O3marchnative B l1   | 9.238 [0.083] (9.100-10.678) | 9.246 [0.148] (9.105-9.723) | 0.9991 | -0.09% | PASS
+clang_O3marchnative B l2   | 10.719 [0.115] (10.566-11.349) | 10.683 [0.159] (10.560-12.706) | 1.0034 | +0.34% | PASS
+clang_O3marchnative B ham  | 8.668 [0.050] (8.530-10.656) | 8.679 [0.164] (8.530-10.580) | 0.9987 | -0.13% | PASS
+clang_O3marchnative B osl  | 9.142 [0.074] (9.003-11.092) | 9.139 [0.049] (8.999-11.203) | 1.0002 | +0.02% | PASS
+gcc_O3marchnative  A dot  | 13.018 [0.700] (12.582-33.136) | 13.282 [0.902] (12.609-31.287) | 0.9801 | -1.99% | PASS
+gcc_O3marchnative  A l1   | 12.832 [0.633] (12.495-40.602) | 12.875 [0.718] (12.522-32.498) | 0.9967 | -0.33% | PASS
+gcc_O3marchnative  A l2   | 6.894 [0.347] (6.637-25.136) | 6.945 [0.389] (6.598-20.536) | 0.9928 | -0.72% | PASS
+gcc_O3marchnative  A ham  | 9.998 [0.418] (9.581-32.748) | 9.868 [0.610] (9.575-47.120) | 1.0132 | +1.32% | PASS
+gcc_O3marchnative  A osl  | 12.924 [0.540] (12.573-55.338) | 12.854 [0.675] (12.520-30.319) | 1.0055 | +0.55% | PASS
+gcc_O3marchnative  B dot  | 12.727 [0.672] (12.413-17.777) | 12.630 [1.067] (12.434-14.669) | 1.0077 | +0.77% | PASS
+gcc_O3marchnative  B l1   | 13.062 [0.955] (12.468-16.120) | 12.667 [0.512] (12.462-15.254) | 1.0311 | +3.11% | PASS
+gcc_O3marchnative  B l2   | 6.639 [0.200] (6.491-9.919) | 6.631 [0.201] (6.474-13.159) | 1.0013 | +0.13% | PASS
+gcc_O3marchnative  B ham  | 9.685 [0.337] (9.490-12.436) | 9.664 [0.807] (9.497-12.839) | 1.0023 | +0.23% | PASS
+gcc_O3marchnative  B osl  | 12.899 [0.882] (12.431-14.656) | 12.754 [0.655] (12.451-20.970) | 1.0114 | +1.14% | PASS
+
+per-config verdict (layout-sensitive = passes in one layout only):
+gcc_O3             dot  A=PASS B=PASS
+gcc_O3             l1   A=PASS B=PASS
+gcc_O3             l2   A=PASS B=PASS
+gcc_O3             ham  A=PASS B=PASS
+gcc_O3             osl  A=PASS B=PASS
+gcc_O3             10/10 kernel-layout cells within 5%
+clang_O3           dot  A=PASS B=PASS
+clang_O3           l1   A=PASS B=PASS
+clang_O3           l2   A=PASS B=PASS
+clang_O3           ham  A=PASS B=PASS
+clang_O3           osl  A=PASS B=PASS
+clang_O3           10/10 kernel-layout cells within 5%
+clang_O3marchnative dot  A=PASS B=PASS
+clang_O3marchnative l1   A=PASS B=PASS
+clang_O3marchnative l2   A=PASS B=PASS
+clang_O3marchnative ham  A=PASS B=PASS
+clang_O3marchnative osl  A=PASS B=PASS
+clang_O3marchnative 10/10 kernel-layout cells within 5%
+gcc_O3marchnative  dot  A=PASS B=PASS
+gcc_O3marchnative  l1   A=PASS B=PASS
+gcc_O3marchnative  l2   A=PASS B=PASS
+gcc_O3marchnative  ham  A=PASS B=PASS
+gcc_O3marchnative  osl  A=PASS B=PASS
+gcc_O3marchnative  10/10 kernel-layout cells within 5%
+
+ratio range over all configs: 0.9801 .. 1.0311
+PRIMARY (gcc -O3, both layouts) ALL-FIVE 5% TARGET: MET
+--- host.txt
+CPU(s):                                  8
+Model name:                              Intel(R) Xeon(R) Processor
+Thread(s) per core:                      1
+Linux 6.8.0-1060-aws x86_64
+gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
+Ubuntu clang version 14.0.0-1ubuntu1.1
+pinning: taskset -c 2; rounds=31
+governor: n/a
+--- cmp host.txt with i8red6 run1: identical
+--- gen7 lock check
+dot/i8dot.c: OK
+l1/i8dot.c: OK
+l2/i8dot.c: OK
+ham/i8dot.c: OK
+osl/i8dot.c: OK
+qz7/i8dot.c: OK
+dot/prog.bend: OK
+l1/prog.bend: OK
+l2/prog.bend: OK
+ham/prog.bend: OK
+osl/prog.bend: OK
+qz7/prog.bend: OK
+--- compiled sources + recheck
+07099e7e47020e72c6c4ac78a94b0dc75fa03fdb19a7e6f7d94c8ecedf973fba  ../gen7/dot/i8dot.c
+3bd36305d87016ddc868777526f8a50e09c5b98904b8db2fb4d823d10ae79156  ../gen7/l1/i8dot.c
+5f0fbfa8eb919738a818244108b289ec03b1980b269793f1a4f00dde5e156804  ../gen7/l2/i8dot.c
+ca6de4349eafa37f0027a6e56679b99c93be3b92d2fc823b4c45af8501b1216a  ../gen7/ham/i8dot.c
+ed6fa7d92cf56122e52c412141253c444852707d6c89edbe6ada113302677a0e  ../gen7/osl/i8dot.c
+94b9d27a1ca3302bdc410522284a3eb83189a48a014bef066ebd86e4e7bc57bc  ../gen7/dot/prog.bend
+476f5836751a63da5bc5dcfea1c1d06523a8c3d3a1c00e71c9ebdb741da4f1a0  ../gen7/l1/prog.bend
+ad82c0b210e953b96608887c120575bde6026bc47461d4dcb9269520d407414b  ../gen7/l2/prog.bend
+2cadabbf845383a343c2e139c557f91469919b1bb3a44c8c46ff255b69efcea6  ../gen7/ham/prog.bend
+a7bb95fb4e6de3d64f482f9ed18c7019876b6fbb1b3f5b644062b25cfc00b0e1  ../gen7/osl/prog.bend
+f6094b5a3fd741540f035da4c82e6598dccb787c97d7ace59108e00b893a8351  hand_dot.c
+fee0f11251c73df118191ab35faf922c583db1330df5b7ced865971567a4525e  hand_ham.c
+ac3611859537647c34f127d9d6f54d927d84939dc1da59b002cd4131b47d671d  hand_l1.c
+e30c92a39e478f42f3b1ff54316cd75b9fdb0940ed131f2622987ca03bf107f8  hand_l2.c
+e9ab3d9c639b8155716c70017415b6c7ae5aeb6a7f9c9a31fc80df65679d6e26  hand_osl.c
+00983eb77f1b52638047dea314b57dacdee64dd563b8b2799ba312872532a799  bench.c
+../gen7/dot/i8dot.c: OK
+../gen7/l1/i8dot.c: OK
+../gen7/l2/i8dot.c: OK
+../gen7/ham/i8dot.c: OK
+../gen7/osl/i8dot.c: OK
+../gen7/dot/prog.bend: OK
+../gen7/l1/prog.bend: OK
+../gen7/l2/prog.bend: OK
+../gen7/ham/prog.bend: OK
+../gen7/osl/prog.bend: OK
+hand_dot.c: OK
+hand_ham.c: OK
+hand_l1.c: OK
+hand_l2.c: OK
+hand_osl.c: OK
+bench.c: OK
+--- correctness
+correct dot: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=1339476007622
+correct l1: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=4184838222
+correct l2: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=299992732756
+correct ham: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=117675068
+correct osl: pairs=1000000 mismatches(gen|hand vs int64 ref)=0 checksum=2058208211
+l2 vs published: top1 ordered 100/100, top10 ordered 100/100, top100 tie-aware distances 100/100, top100 identical ordered ids (index tie-break) 91/100
+--- codeshape
+gcc_O3 dot normalized-asm gen-vs-hand: differs(56 lines; gen 174 hand 174 insns)
+gcc_O3 l1 normalized-asm gen-vs-hand: identical
+gcc_O3 l2 normalized-asm gen-vs-hand: identical
+gcc_O3 ham normalized-asm gen-vs-hand: identical
+gcc_O3 osl normalized-asm gen-vs-hand: identical
+gcc_O3marchnative dot normalized-asm gen-vs-hand: differs(58 lines; gen 202 hand 202 insns)
+gcc_O3marchnative l1 normalized-asm gen-vs-hand: identical
+gcc_O3marchnative l2 normalized-asm gen-vs-hand: identical
+gcc_O3marchnative ham normalized-asm gen-vs-hand: identical
+gcc_O3marchnative osl normalized-asm gen-vs-hand: identical
+clang_O3 dot normalized-asm gen-vs-hand: identical
+clang_O3 l1 normalized-asm gen-vs-hand: identical
+clang_O3 l2 normalized-asm gen-vs-hand: identical
+clang_O3 ham normalized-asm gen-vs-hand: identical
+clang_O3 osl normalized-asm gen-vs-hand: identical
+clang_O3marchnative dot normalized-asm gen-vs-hand: identical
+clang_O3marchnative l1 normalized-asm gen-vs-hand: identical
+clang_O3marchnative l2 normalized-asm gen-vs-hand: identical
+clang_O3marchnative ham normalized-asm gen-vs-hand: identical
+clang_O3marchnative osl normalized-asm gen-vs-hand: identical
+--- imports
+gcc_O3 gen_dot.o undefined: []
+gcc_O3 gen_ham.o undefined: []
+gcc_O3 gen_l1.o undefined: []
+gcc_O3 gen_l2.o undefined: []
+gcc_O3 gen_osl.o undefined: []
+gcc_O3 hand_dot.o undefined: []
+gcc_O3 hand_ham.o undefined: []
+gcc_O3 hand_l1.o undefined: []
+gcc_O3 hand_l2.o undefined: []
+gcc_O3 hand_osl.o undefined: []
+gcc_O3marchnative gen_dot.o undefined: []
+gcc_O3marchnative gen_ham.o undefined: []
+gcc_O3marchnative gen_l1.o undefined: []
+gcc_O3marchnative gen_l2.o undefined: []
+gcc_O3marchnative gen_osl.o undefined: []
+gcc_O3marchnative hand_dot.o undefined: []
+gcc_O3marchnative hand_ham.o undefined: []
+gcc_O3marchnative hand_l1.o undefined: []
+gcc_O3marchnative hand_l2.o undefined: []
+gcc_O3marchnative hand_osl.o undefined: []
+clang_O3 gen_dot.o undefined: []
+clang_O3 gen_ham.o undefined: []
+clang_O3 gen_l1.o undefined: []
+clang_O3 gen_l2.o undefined: []
+clang_O3 gen_osl.o undefined: []
+clang_O3 hand_dot.o undefined: []
+clang_O3 hand_ham.o undefined: []
+clang_O3 hand_l1.o undefined: []
+clang_O3 hand_l2.o undefined: []
+clang_O3 hand_osl.o undefined: []
+clang_O3marchnative gen_dot.o undefined: []
+clang_O3marchnative gen_ham.o undefined: []
+clang_O3marchnative gen_l1.o undefined: []
+clang_O3marchnative gen_l2.o undefined: []
+clang_O3marchnative gen_osl.o undefined: []
+clang_O3marchnative hand_dot.o undefined: []
+clang_O3marchnative hand_ham.o undefined: []
+clang_O3marchnative hand_l1.o undefined: []
+clang_O3marchnative hand_l2.o undefined: []
+clang_O3marchnative hand_osl.o undefined: []
+
+######## 15. normalized asm of every generated object equals i8red6's
+asm_clang_O3_gen_dot.s identical
+asm_clang_O3_gen_ham.s identical
+asm_clang_O3_gen_l1.s identical
+asm_clang_O3_gen_l2.s identical
+asm_clang_O3_gen_osl.s identical
+asm_clang_O3marchnative_gen_dot.s identical
+asm_clang_O3marchnative_gen_ham.s identical
+asm_clang_O3marchnative_gen_l1.s identical
+asm_clang_O3marchnative_gen_l2.s identical
+asm_clang_O3marchnative_gen_osl.s identical
+asm_gcc_O3_gen_dot.s identical
+asm_gcc_O3_gen_ham.s identical
+asm_gcc_O3_gen_l1.s identical
+asm_gcc_O3_gen_l2.s identical
+asm_gcc_O3_gen_osl.s identical
+asm_gcc_O3marchnative_gen_dot.s identical
+asm_gcc_O3marchnative_gen_ham.s identical
+asm_gcc_O3marchnative_gen_l1.s identical
+asm_gcc_O3marchnative_gen_l2.s identical
+asm_gcc_O3marchnative_gen_osl.s identical
+--- gcc_O3 dot gen vs hand normalized diff
+60,61c60,61
+< movsbl (%r8,%rdx,1),%r10d
+< movsbl (%rdi,%rdx,1),%r9d
+---
+> movsbl (%r8,%rdx,1),%r9d
+> movsbl (%rdi,%rdx,1),%r10d
+67,68c67,68
+< movsbl 0x1(%r8,%rdx,1),%r10d
+< movsbl 0x1(%rdi,%rdx,1),%r9d
+---
+> movsbl 0x1(%r8,%rdx,1),%r9d
+> movsbl 0x1(%rdi,%rdx,1),%r10d
+74,75c74,75
+< movsbl 0x2(%r8,%rdx,1),%r10d
+< movsbl 0x2(%rdi,%rdx,1),%r9d
+---
+> movsbl 0x2(%r8,%rdx,1),%r9d
+> movsbl 0x2(%rdi,%rdx,1),%r10d
+81,82c81,82
+< movsbl 0x3(%r8,%rdx,1),%r10d
+< movsbl 0x3(%rdi,%rdx,1),%r9d
+---
+> movsbl 0x3(%r8,%rdx,1),%r9d
+> movsbl 0x3(%rdi,%rdx,1),%r10d
+88,89c88,89
+< movsbl 0x4(%r8,%rdx,1),%r10d
+< movsbl 0x4(%rdi,%rdx,1),%r9d
+---
+> movsbl 0x4(%r8,%rdx,1),%r9d
+> movsbl 0x4(%rdi,%rdx,1),%r10d
+95,96c95,96
+< movsbl 0x5(%r8,%rdx,1),%r10d
+< movsbl 0x5(%rdi,%rdx,1),%r9d
+---
+> movsbl 0x5(%r8,%rdx,1),%r9d
+> movsbl 0x5(%rdi,%rdx,1),%r10d
+102,103c102,103
+< movsbl 0x6(%r8,%rdx,1),%r10d
+< movsbl 0x6(%rdi,%rdx,1),%r9d
+---
+> movsbl 0x6(%r8,%rdx,1),%r9d
+> movsbl 0x6(%rdi,%rdx,1),%r10d
+109,110c109,110
+< movsbl 0x7(%r8,%rdx,1),%r10d
+< movsbl 0x7(%rdi,%rdx,1),%r9d
+---
+> movsbl 0x7(%r8,%rdx,1),%r9d
+> movsbl 0x7(%rdi,%rdx,1),%r10d
+116,117c116,117
+< movsbl 0x8(%r8,%rdx,1),%r10d
+< movsbl 0x8(%rdi,%rdx,1),%r9d
+---
+> movsbl 0x8(%r8,%rdx,1),%r9d
+> movsbl 0x8(%rdi,%rdx,1),%r10d
+123,124c123,124
+< movsbl 0x9(%r8,%rdx,1),%r10d
+< movsbl 0x9(%rdi,%rdx,1),%r9d
+---
+> movsbl 0x9(%r8,%rdx,1),%r9d
+> movsbl 0x9(%rdi,%rdx,1),%r10d
+
+######## 16. superseded first replay attempt (scan hit on a comment containing the word native_decide; comment reworded, no proof change)
+no_sorry                                 exit=0   want=1   UNEXPECTED 
+TOTAL=268 UNEXPECTED=1
+no_sorry                                 exit=0   want=1   UNEXPECTED 
+
+==================== the one executable gate on the actual emitted files

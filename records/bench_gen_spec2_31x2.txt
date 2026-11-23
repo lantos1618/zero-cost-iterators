@@ -1,0 +1,36 @@
+##### run 1
+n=200000 rounds=31 depts=16 names=1000 (times in microseconds; median [p25,p75] min-max)
+viewA: median=2517 [2459,2608] 2339-7462 checksum_sum=4961770563127
+handA: median=4314 [4239,4465] 4096-7408 checksum_sum=4961770563127
+stagedA: median=5259 [5080,5617] 4950-7859 checksum_sum=4961770563127
+handA2: median=1182 [1159,1225] 1152-1426 checksum_sum=4961770563127
+viewAi: median=1183 [1160,1245] 1146-1749 checksum_sum=4961770563127
+viewB: median=8682 [8421,8892] 8274-12123 checksum_sum=323816529752
+handB: median=6654 [6543,6840] 6476-8305 checksum_sum=323816529752
+stagedB: median=11763 [11578,12224] 11330-15592 checksum_sum=323816529752
+handB2: median=6650 [6513,7092] 6422-8007 checksum_sum=323816529752
+viewBi: median=8324 [8198,8552] 7980-10907 checksum_sum=323816529752
+ratio fused/hand A = 0.5834   staged/hand A = 1.2190
+ratio fused/hand B = 1.3047   staged/hand B = 1.7678
+ratio fused/hand2 A = 2.1278  fusedInline/hand2 A = 1.3
+ratio fused/hand2 B = 1.3055  fusedInline/hand2 B = 1.2518
+checksum mismatches=0
+exit=0
+##### run 2
+n=200000 rounds=31 depts=16 names=1000 (times in microseconds; median [p25,p75] min-max)
+viewA: median=2483 [2440,2649] 2386-3003 checksum_sum=4961770563127
+handA: median=4384 [4237,4450] 4161-5184 checksum_sum=4961770563127
+stagedA: median=5219 [5149,5284] 4851-6488 checksum_sum=4961770563127
+handA2: median=1199 [1166,1256] 1151-1492 checksum_sum=4961770563127
+viewAi: median=1182 [1169,1263] 1149-1522 checksum_sum=4961770563127
+viewB: median=8596 [8510,8801] 8384-10220 checksum_sum=323816529752
+handB: median=6737 [6607,6902] 6449-8074 checksum_sum=323816529752
+stagedB: median=11879 [11706,12131] 11421-14007 checksum_sum=323816529752
+handB2: median=6674 [6553,6804] 6447-9777 checksum_sum=323816529752
+viewBi: median=8372 [8204,8785] 8084-11003 checksum_sum=323816529752
+ratio fused/hand A = 0.5663   staged/hand A = 1.1903
+ratio fused/hand B = 1.2758   staged/hand B = 1.7630
+ratio fused/hand2 A = 2.699  fusedInline/hand2 A = 0.9859
+ratio fused/hand2 B = 1.2878  fusedInline/hand2 B = 1.2543
+checksum mismatches=0
+exit=0

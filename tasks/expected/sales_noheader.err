@@ -1,0 +1,1 @@
+tasks/fixtures/sales_noheader.csv:1: expected header 'product,qty,unit_cents,status'

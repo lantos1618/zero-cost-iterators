@@ -1,0 +1,14 @@
+SOME PROOFS FAIL
+Error:
+- expected : {dotL(t, Nat.add(acc, Nat.add(x, y))) == sumL(times(t), Nat.add(acc, Nat.mul(x, y))) : Nat}
+- observed : {dotL(t, Nat.add(acc, Nat.mul(x, y))) == sumL(times(t), Nat.add(acc, Nat.mul(x, y))) : Nat}
+Context:
+- x   : Nat
+- y   : Nat
+- t   : NP
+- acc : Nat
+Location: dot_acc
+210 |     case NCons{+x, +y, +t}:
+211>|       dot_acc(t, Nat.add(acc, Nat.mul(x, y)))
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+212 | 

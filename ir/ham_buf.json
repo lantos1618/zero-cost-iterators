@@ -1,0 +1,1 @@
+{"name": "ham_buf", "max_n": 2147483647, "prog": ["alloc", {"loop": ["LdA", "LdB", "Sub", "Ne0", "StT"]}, {"loop": ["LdT", "Acc"]}]}

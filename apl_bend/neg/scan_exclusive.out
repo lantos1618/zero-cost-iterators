@@ -1,0 +1,13 @@
+SOME PROOFS FAIL
+Error:
+- expected : {LCon{sumR(seen), scanL(t, Nat.add(sumR(seen), h))} == LCon{sumR(snoc(seen, h)), scanRef(t, snoc(seen, h))} : NL}
+- observed : {LCon{Nat.add(sumR(seen), h), scanL(t, Nat.add(sumR(seen), h))} == LCon{sumR(snoc(seen, h)), scanRef(t, snoc(seen, h))} : NL}
+Context:
+- h    : Nat
+- t    : NL
+- seen : NL
+Location: scan_gen
+132 |     case LCon{+h, +t}:
+133>|       %sumR_snoc(seen, h) : {LCon{_, scanL(t, _)} == LCon{sumR(snoc(seen, h)), scanRef(t, snoc(seen, h))} : NL}
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+134 |       %scan_gen(t, snoc(seen, h)) : {LCon{sumR(snoc(seen, h)), scanL(t, sumR(snoc(seen, h)))} == LCon{sumR(snoc(seen, h)), _} : NL}

@@ -1,0 +1,4 @@
+file: tasks/fixtures/sales_header_only.csv
+rows: 0 (kept: 0; filter: status=paid min_qty=0)
+product,lines,units,revenue_cents,revenue
+TOTAL,0,0,0,0.00

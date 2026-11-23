@@ -1,0 +1,1 @@
+tasks/fixtures/bad_utf8.txt: invalid UTF-8 (file rejected, nothing replaced)

@@ -1,0 +1,7 @@
+../../variants/l1/i8dot.c: insns=263 psubd=8 psubw=0 pcmpgtd=4 pcmpeqb=0 punpck=12
+l1_ternary.c: insns=228 psubd=0 psubw=4 pcmpgtd=0 pcmpeqb=0 punpck=8
+l1_hand_ifstmt.c: insns=263 psubd=8 psubw=0 pcmpgtd=4 pcmpeqb=0 punpck=12
+../hand_l1.c: insns=228 psubd=0 psubw=4 pcmpgtd=0 pcmpeqb=0 punpck=8
+../../variants/ham/i8dot.c: insns=332 psubd=8 psubw=0 pcmpgtd=8 pcmpeqb=0 punpck=12
+ham_ne.c: insns=177 psubd=0 psubw=0 pcmpgtd=0 pcmpeqb=1 punpck=6
+../hand_ham.c: insns=177 psubd=0 psubw=0 pcmpgtd=0 pcmpeqb=1 punpck=6

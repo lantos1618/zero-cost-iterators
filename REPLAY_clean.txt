@@ -1,0 +1,215 @@
+
+==================== versions
+bend 2.0.40
+Lean (version 4.15.0, x86_64-unknown-linux-gnu, commit 11651562caae, Release)
+gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
+Ubuntu clang version 14.0.0-1ubuntu1.1
+Python 3.12.16
+Linux x86_64
+
+==================== emit with gen.py (trusted) and compare with the committed emitted files
+emit_pos_same                            exit=0   want=0   ok         
+emit_wrap_same                           exit=0   want=0   ok         
+emit_buf_same                            exit=0   want=0   ok         
+emit_l1_same                             exit=0   want=0   ok         
+emit_l2_same                             exit=0   want=0   ok         
+emit_ham_same                            exit=0   want=0   ok         
+emit_osl_same                            exit=0   want=0   ok         
+emit_l2_badguard_same                    exit=0   want=0   ok         
+emit_l2_buf_same                         exit=0   want=0   ok         
+emit_ham_badguard_same                   exit=0   want=0   ok         
+emit_osl_badguard_same                   exit=0   want=0   ok         
+emit_osl_buf_same                        exit=0   want=0   ok         
+emit_l1_badguard_same                    exit=0   want=0   ok         
+emit_l1_buf_same                         exit=0   want=0   ok         
+emit_ham_buf_same                        exit=0   want=0   ok         
+emit_l1_noabs_same                       exit=0   want=0   ok         
+emit_ham_noabs_same                      exit=0   want=0   ok         
+emit_osl_prepos_same                     exit=0   want=0   ok         
+emit_ham_nosub_same                      exit=0   want=0   ok         
+pos_C_byteidentical_to_r5                exit=0   want=0   ok         
+kernel_copy_pos                          exit=0   want=0   ok         
+kernel_copy_wrap                         exit=0   want=0   ok         
+kernel_copy_buf                          exit=0   want=0   ok         
+kernel_copy_l1                           exit=0   want=0   ok         
+kernel_copy_l2                           exit=0   want=0   ok         
+kernel_copy_ham                          exit=0   want=0   ok         
+kernel_copy_osl                          exit=0   want=0   ok         
+fc940537c23683ff82ae376b709f2e157d16ec5f3b12253cb18abb1070d2e42d  kernel.bend
+eef92b360799a54fdffacc23f455e42bf60749715ef28dc9e1807a69be142187  variants/buf/prog.bend
+b8444220a2a669742285e27ecf45db30810f68444fc6909b13a9df96ff3669bd  variants/ham/prog.bend
+cd63e4525158940d9716fb9970011cbafea5e3379bcca1fc1a0972a4036cb0e7  variants/l1/prog.bend
+150fd5f6d68633a297f3e36875ceaf6e30c4f89727bfced9a56af758701ed16a  variants/l2/prog.bend
+201eac565acb9adf71c94aeae3cf9293aae55975ecfe46320ad08b87914b9ec2  variants/osl/prog.bend
+4ec97666e7c258fb1b63d0bc44a09753aa9b9d734f1686bf821829b7d548a869  variants/pos/prog.bend
+7742a1412571b36679c0f7cbe6990ca9afe68ccddd2e4204157ef15ae28f4ae3  variants/wrap/prog.bend
+49861f9f84d727d1d72fc3a1c70904561d447edf21aad20b18a24227b315788e  variants/buf/i8dot.c
+b316aaeeebf79844a69c66c97550eee79dc49e999a1d9c163c388bedc5dd7c22  variants/ham/i8dot.c
+5d1ddb544e81267111a99181175c13885043c42866628aac664a5ab1b889d9e6  variants/l1/i8dot.c
+b0fc0ba4b67bcc9c26e634bbfff80800eeb35ceff17b862294ef0e84d4e92550  variants/l2/i8dot.c
+c8d01d8257b24ba4e117103f00f8cc7336575475afeefdc3c728b9d0fef6da2d  variants/osl/i8dot.c
+26c89b59a1c8eb17e445d2f3fdd8480eab56e8c6a393630528f644e3b7cf5c96  variants/pos/i8dot.c
+c1a031bd05a91ecb5ab362c34d9e6eab8c1633b17bf0ffeacc3fb8821553b532  variants/wrap/i8dot.c
+
+==================== Bend --verdict (actual kernel.bend + actual prog.bend)
+bend_pos_PROOF                           exit=0   want=0   ok         ALL PROOFS CHECK
+bend_l1_PROOF_RED                        exit=0   want=0   ok         ALL PROOFS CHECK
+bend_l2_PROOF_RED                        exit=0   want=0   ok         ALL PROOFS CHECK
+bend_ham_PROOF_RED                       exit=0   want=0   ok         ALL PROOFS CHECK
+bend_osl_PROOF_RED                       exit=0   want=0   ok         ALL PROOFS CHECK
+
+==================== trusted Bend->Lean translation: regenerate and require byte-identical Lean
+base_pinned_same                         exit=0   want=0   ok         
+translate_kernel_same                    exit=0   want=0   ok         
+translate_progs_same                     exit=0   want=0   ok         
+
+==================== Lean build (checker + all proofs) and axiom audit
+lean_build                               exit=0   want=0   ok         
+lean_audit                               exit=0   want=0   ok         
+audited theorems: 114
+     30 [propext, Classical.choice, Quot.sound]
+     36 [propext, Quot.sound]
+     26 [propext]
+     22 does not depend on any axioms
+audit_covers_every_theorem               exit=0   want=0   ok         
+no_sorry                                 exit=1   want=1   ok         
+
+==================== the one executable gate on the actual emitted files
+gate_exact_pos                           exit=0   want=0   ok         VERDICT: PASS
+gate_match_pos                           exit=0   want=0   ok         VERDICT: PASS
+gate_exact_l1                            exit=0   want=0   ok         VERDICT: PASS
+gate_match_l1                            exit=0   want=0   ok         VERDICT: PASS
+gate_exact_l2                            exit=0   want=0   ok         VERDICT: PASS
+gate_match_l2                            exit=0   want=0   ok         VERDICT: PASS
+gate_exact_ham                           exit=0   want=0   ok         VERDICT: PASS
+gate_match_ham                           exit=0   want=0   ok         VERDICT: PASS
+gate_exact_osl                           exit=0   want=0   ok         VERDICT: PASS
+gate_match_osl                           exit=0   want=0   ok         VERDICT: PASS
+gate_exact_wrap_own                      exit=3   want=3   ok         VERDICT: IR MISMATCH
+gate_match_wrap_own                      exit=0   want=0   ok         VERDICT: PASS
+-- base controls (three-kernel milestone)
+ctl_buf_dot_r5                           exit=2   want=2   ok         REJECT: line 4: unrecognised line "#include <stdlib.h>"
+ctl_buf_l2_diffbuffer                    exit=2   want=2   ok         REJECT: line 4: unrecognised line "#include <stdlib.h>"
+ctl_l2_wrong_guard_131071                exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 33025 for this loop body (found [C.Di
+ctl_l2_wrong_guard_match                 exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 33025 for this loop body (found [C.Di
+ctl_l2_missing_guard                     exit=2   want=2   ok         REJECT: statement 0: expected `if (n > I8DOT_MAX_N) return -1;`, found `int32_t acc = 0;`
+ctl_l1_arith_signflip                    exit=2   want=2   ok         REJECT: line 15: unrecognised line "if (r0 > 0) r0 = -r0;"
+ctl_l1_noabs_exact_own                   exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_l1_noabs_match_own                   exit=5   want=5   ok         VERDICT: UNCERTIFIED (matching but uncertified program)
+ctl_l1_noabs_vs_l1prog                   exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_l1C_vs_l2prog                        exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_l2C_vs_l1prog                        exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_dotC_vs_l2prog                       exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_l2prog_tampered                      exit=4   want=4   ok         BEND REJECT: file is not exactly the generated preamble + `def prog() -> K.Stmts:` + one term
+ctl_r5_overflow_match                    exit=5   want=5   ok         VERDICT: UNCERTIFIED (matching but uncertified program)
+-- Hamming / one-sided L1 controls
+ctl_ham_bit_to_2                         exit=2   want=2   ok         REJECT: line 16: unrecognised line "if (r0 > 0) r0 = 2;"
+ctl_osl_pos_to_1                         exit=2   want=2   ok         REJECT: line 15: unrecognised line "if (r0 < 0) r0 = 1;"
+ctl_ham_wrong_guard_2147483648           exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 2147483647 for this loop body (found 
+ctl_ham_wrong_guard_match                exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 2147483647 for this loop body (found 
+ctl_osl_wrong_guard_8421505              exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 8421504 for this loop body (found [C.
+ctl_osl_missing_guard                    exit=2   want=2   ok         REJECT: statement 0: expected `if (n > I8DOT_MAX_N) return -1;`, found `int32_t acc = 0;`
+ctl_buf_osl_diffbuffer                   exit=2   want=2   ok         REJECT: line 4: unrecognised line "#include <stdlib.h>"
+ctl_ham_noabs_exact_own                  exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_ham_noabs_match_own                  exit=5   want=5   ok         VERDICT: UNCERTIFIED (matching but uncertified program)
+ctl_ham_noabs_vs_hamprog                 exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_osl_pos_before_sub_exact             exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_osl_pos_before_sub_match             exit=5   want=5   ok         VERDICT: UNCERTIFIED (matching but uncertified program)
+ctl_osl_pos_before_sub_vs_osl            exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_l1C_vs_hamprog                       exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_l1C_vs_oslprog                       exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_hamC_vs_oslprog                      exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_oslC_vs_l1prog                       exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_oslC_vs_hamprog                      exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl_hamprog_tampered                     exit=4   want=4   ok         BEND REJECT: file is not exactly the generated preamble + `def prog() -> K.Stmts:` + one term
+ctl_oslprog_tampered                     exit=4   want=4   ok         BEND REJECT: file is not exactly the generated preamble + `def prog() -> K.Stmts:` + one term
+-- i8red6: certified ternary L1 (AbsT) and != Hamming (Ne0) spellings
+ctl6_l1t_inverted                        exit=2   want=2   ok         REJECT: line 15: unrecognised line "r0 = r0 < 0 ? r0 : -r0;"
+ctl6_l1t_gt                              exit=2   want=2   ok         REJECT: line 15: unrecognised line "r0 = r0 > 0 ? -r0 : r0;"
+ctl6_l1t_le                              exit=2   want=2   ok         REJECT: line 15: unrecognised line "r0 = r0 <= 0 ? -r0 : r0;"
+ctl6_l1t_bothneg                         exit=2   want=2   ok         REJECT: line 15: unrecognised line "r0 = r0 < 0 ? -r0 : -r0;"
+ctl6_l1t_noguard                         exit=2   want=2   ok         REJECT: statement 0: expected `if (n > I8DOT_MAX_N) return -1;`, found `int32_t acc = 0;`
+ctl6_ham_eq                              exit=2   want=2   ok         REJECT: line 15: unrecognised line "r0 = r0 == 0;"
+ctl6_ham_gt                              exit=2   want=2   ok         REJECT: line 15: unrecognised line "r0 = r0 > 0;"
+ctl6_ham_ne1                             exit=2   want=2   ok         REJECT: line 15: unrecognised line "r0 = r0 != 1;"
+ctl6_ham_noguard                         exit=2   want=2   ok         REJECT: statement 0: expected `if (n > I8DOT_MAX_N) return -1;`, found `int32_t acc = 0;`
+ctl6_l1_wrong_guard_8421505              exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 8421504 for this loop body (found [C.
+ctl6_l1_wrong_guard_match                exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 8421504 for this loop body (found [C.
+ctl6_buf_l1_absbuffer                    exit=2   want=2   ok         REJECT: line 4: unrecognised line "#include <stdlib.h>"
+ctl6_buf_ham_ne0buffer                   exit=2   want=2   ok         REJECT: line 4: unrecognised line "#include <stdlib.h>"
+   (sign-sensitive: Sub;Bit without Abs/Ne0 = controls/ham_noabs above: exact 3, match 5)
+ctl6_ham_nosub_exact_own                 exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl6_ham_nosub_match_own                 exit=5   want=5   ok         VERDICT: UNCERTIFIED (matching but uncertified program)
+ctl6_ham_nosub_vs_hamprog                exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl6_l1_retired_spelling_exact_own       exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+ctl6_l1_retired_spelling_match_own       exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+ctl6_l1_retired_C_vs_new_prog            exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+ctl6_l1_new_C_vs_retired_prog            exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl6_ham_retired_spelling_exact_own      exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+ctl6_ham_retired_spelling_match_own      exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+ctl6_ham_retired_C_vs_new_prog           exit=2   want=2   ok         REJECT: length guard: #define I8DOT_MAX_N must equal the certified bound 131071 for this loop body (found [C.D
+ctl6_ham_new_C_vs_retired_prog           exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl6_hamC_vs_l1prog                      exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl6_hamC_vs_dotprog                     exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl6_l1C_vs_dotprog                      exit=3   want=3   ok         VERDICT: IR MISMATCH
+ctl6_l1prog_tampered                     exit=4   want=4   ok         BEND REJECT: file is not exactly the generated preamble + `def prog() -> K.Stmts:` + one term
+
+==================== negative controls: evaluator primitive changed in kernel.bend; Bend's law shares the primitive, the Lean link does not
+neg_zsub_kernel_changed                  exit=1   want=1   ok         
+neg_zsub_bend_l1_law_still_passes        exit=0   want=0   ok         ALL PROOFS CHECK
+neg_zsub_lean_differs                    exit=1   want=1   ok         
+neg_zsub_link_build_fails                exit=1   want=1   ok         error: ././././Bridge/BendLink.lean:94:71: omega could not prove the goal:
+BendLink.lean:94:71: omega could not prove the goal
+neg_zpos_kernel_changed                  exit=1   want=1   ok         
+neg_zpos_bend_osl_law_still_passes       exit=0   want=0   ok         ALL PROOFS CHECK
+neg_zpos_lean_differs                    exit=1   want=1   ok         
+neg_zpos_link_build_fails                exit=1   want=1   ok         error: ././././Bridge/BendLink.lean:109:57: omega could not prove the goal:
+BendLink.lean:109:57: omega could not prove the goal
+neg_zne0_kernel_changed                  exit=1   want=1   ok         
+neg_zne0_bend_ham_law_still_passes       exit=0   want=0   ok         ALL PROOFS CHECK
+neg_zne0_lean_differs                    exit=1   want=1   ok         
+neg_zne0_link_build_fails                exit=1   want=1   ok         error: ././././Bridge/BendLink.lean:131:102: omega could not prove the goal:
+BendLink.lean:131:102: omega could not prove the goal
+neg_zabs_kernel_changed                  exit=1   want=1   ok         
+neg_zabs_bend_l1_law_still_passes        exit=0   want=0   ok         ALL PROOFS CHECK
+neg_zabs_lean_differs                    exit=1   want=1   ok         
+neg_zabs_link_build_fails                exit=1   want=1   ok         error: ././././Bridge/BendLink.lean:103:41: omega could not prove the goal:
+BendLink.lean:103:41: omega could not prove the goal
+
+==================== finite native differential tests (not proof): n=0, 1, 2, extremes, around each guard, deterministic random
+native_pos_gcc__O2                       exit=0   want=0   ok         kernel=0 N=131071 readable=131073 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147467264 (INT32_MAX=214748364
+native_pos_gcc__O3__march_native         exit=0   want=0   ok         kernel=0 N=131071 readable=131073 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147467264 (INT32_MAX=214748364
+native_pos_clang__O3                     exit=0   want=0   ok         kernel=0 N=131071 readable=131073 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147467264 (INT32_MAX=214748364
+native_pos_gcc__O1__fsanitize_undefined__fno_sanitize_recover_all exit=0   want=0   ok         kernel=0 N=131071 readable=131073 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147467264 (INT32_MAX=214748364
+native_pos_clang__O1__fsanitize_undefined__fno_sanitize_recover_all exit=0   want=0   ok         kernel=0 N=131071 readable=131073 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147467264 (INT32_MAX=214748364
+native_l1_gcc__O2                        exit=0   want=0   ok         kernel=1 N=8421504 readable=8421506 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483
+native_l1_gcc__O3__march_native          exit=0   want=0   ok         kernel=1 N=8421504 readable=8421506 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483
+native_l1_clang__O3                      exit=0   want=0   ok         kernel=1 N=8421504 readable=8421506 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483
+native_l1_gcc__O1__fsanitize_undefined__fno_sanitize_recover_all exit=0   want=0   ok         kernel=1 N=8421504 readable=8421506 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483
+native_l1_clang__O1__fsanitize_undefined__fno_sanitize_recover_all exit=0   want=0   ok         kernel=1 N=8421504 readable=8421506 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483
+native_l2_gcc__O2                        exit=0   want=0   ok         kernel=2 N=33025 readable=33027 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147450625 (INT32_MAX=2147483647)
+native_l2_gcc__O3__march_native          exit=0   want=0   ok         kernel=2 N=33025 readable=33027 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147450625 (INT32_MAX=2147483647)
+native_l2_clang__O3                      exit=0   want=0   ok         kernel=2 N=33025 readable=33027 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147450625 (INT32_MAX=2147483647)
+native_l2_gcc__O1__fsanitize_undefined__fno_sanitize_recover_all exit=0   want=0   ok         kernel=2 N=33025 readable=33027 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147450625 (INT32_MAX=2147483647)
+native_l2_clang__O1__fsanitize_undefined__fno_sanitize_recover_all exit=0   want=0   ok         kernel=2 N=33025 readable=33027 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147450625 (INT32_MAX=2147483647)
+native_ham_gcc__O2                       exit=0   want=0   ok         kernel=3 N=2147483647 readable=1048576 runs=2035 skipped=10 fails=0 worst_case_N_sum=2147483647 (INT32_MAX=214
+native_ham_gcc__O3__march_native         exit=0   want=0   ok         kernel=3 N=2147483647 readable=1048576 runs=2035 skipped=10 fails=0 worst_case_N_sum=2147483647 (INT32_MAX=214
+native_ham_clang__O3                     exit=0   want=0   ok         kernel=3 N=2147483647 readable=1048576 runs=2035 skipped=10 fails=0 worst_case_N_sum=2147483647 (INT32_MAX=214
+native_ham_gcc__O1__fsanitize_undefined__fno_sanitize_recover_all exit=0   want=0   ok         kernel=3 N=2147483647 readable=1048576 runs=2035 skipped=10 fails=0 worst_case_N_sum=2147483647 (INT32_MAX=214
+native_ham_clang__O1__fsanitize_undefined__fno_sanitize_recover_all exit=0   want=0   ok         kernel=3 N=2147483647 readable=1048576 runs=2035 skipped=10 fails=0 worst_case_N_sum=2147483647 (INT32_MAX=214
+native_osl_gcc__O2                       exit=0   want=0   ok         kernel=4 N=8421504 readable=8421506 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483
+native_osl_gcc__O3__march_native         exit=0   want=0   ok         kernel=4 N=8421504 readable=8421506 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483
+native_osl_clang__O3                     exit=0   want=0   ok         kernel=4 N=8421504 readable=8421506 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483
+native_osl_gcc__O1__fsanitize_undefined__fno_sanitize_recover_all exit=0   want=0   ok         kernel=4 N=8421504 readable=8421506 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483
+native_osl_clang__O1__fsanitize_undefined__fno_sanitize_recover_all exit=0   want=0   ok         kernel=4 N=8421504 readable=8421506 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483520 (INT32_MAX=2147483
+-- Hamming at its exact guard with full 2 GiB readable arrays (one build): n = N-1, N on extremes (N*1 = INT32_MAX)
+native_ham_fulledge_gcc_O2               exit=0   want=0   ok         kernel=3 N=2147483647 readable=2147483649 runs=2045 skipped=0 fails=0 worst_case_N_sum=2147483647 (INT32_MAX=2
+pos undefined symbols: []
+l1 undefined symbols: []
+l2 undefined symbols: []
+ham undefined symbols: []
+osl undefined symbols: []
+
+==================== summary
+TOTAL=155 UNEXPECTED=0
+SCRIPT_EXIT=0

@@ -1,0 +1,5 @@
+trace: pred line 1
+trace: pred line 2
+trace: pred line 3
+trace: pred line 4
+trace: model findPulls=4 (untraced recount); lines buffered before find=8

@@ -1,0 +1,24 @@
+##### run 1
+n=200000 rounds=31 depts=16 names=1000 (times in microseconds; median [p25,p75] min-max)
+viewA: median=2470 [2431,2562] 2331-2762 checksum_sum=4961770563127
+handA: median=4313 [4239,4351] 4152-4652 checksum_sum=4961770563127
+stagedA: median=5154 [5090,5261] 4706-5352 checksum_sum=4961770563127
+viewB: median=8386 [8341,8435] 8213-11020 checksum_sum=323816529752
+handB: median=6504 [6423,6544] 6363-7379 checksum_sum=323816529752
+stagedB: median=11649 [11451,11830] 11352-21636 checksum_sum=323816529752
+ratio fused/hand A = 0.5727   staged/hand A = 1.1948
+ratio fused/hand B = 1.2892   staged/hand B = 1.7910
+checksum mismatches=0
+exit=0
+##### run 2
+n=200000 rounds=31 depts=16 names=1000 (times in microseconds; median [p25,p75] min-max)
+viewA: median=2462 [2392,2490] 2345-2686 checksum_sum=4961770563127
+handA: median=4306 [4247,4352] 4130-4615 checksum_sum=4961770563127
+stagedA: median=5153 [5080,5200] 4662-5359 checksum_sum=4961770563127
+viewB: median=8402 [8310,8489] 8227-8746 checksum_sum=323816529752
+handB: median=6499 [6421,6553] 6333-6755 checksum_sum=323816529752
+stagedB: median=11577 [11470,11770] 11140-12595 checksum_sum=323816529752
+ratio fused/hand A = 0.5718   staged/hand A = 1.1967
+ratio fused/hand B = 1.2928   staged/hand B = 1.7813
+checksum mismatches=0
+exit=0

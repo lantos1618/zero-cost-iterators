@@ -1,0 +1,10 @@
+product,qty,unit_cents,status
+apple,3,125,paid
+pear,1,240,paid
+apple,2,125,refunded
+fig,0,999,paid
+pear,4,230,paid
+apple,1,130,paid
+kiwi,5,60,refunded
+fig,2,350,paid
+pear,1,240,paid
