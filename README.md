@@ -32,6 +32,41 @@ def declare (names : Array String) : Except String (List String) := do
   return table
 ```
 
+## Scorecard
+
+**What is proved** (Lean, standard axioms only; `replay.sh` lists and audits every theorem)
+
+| claim | theorems | status |
+|---|---|---|
+| every `Iter` chain behaves as its list program, under any lawful monad (state, exceptions, early exit) | `Denotes.*` | proved |
+| zero cost, in the cost model: 0 intermediate allocations, ≤ 1 read per item, same callback calls as the staged program; 3 broken versions rejected | `lower_allocs`, `lower_pulls_le`, `lower_calls`, `mut_*` | proved (model only) |
+| word `filter → map → sum` = masked multi-lane loop | `opt_correct` | proved |
+| word `count`, `min?`, `max?` = masked lane loops | `count_correct`, `red_correct` | proved |
+| record summary = search + one masked pass | `fast1_correct`, `fast2_correct` | proved |
+| record summary = search + any mix of masked and branchy rows, for every switch policy | `fast3_correct` | proved |
+| the printed C++ loop structure (lanes, rounds, tail, `seen`, search) computes those loops | `printed_correct`, `printed_count`, `printed_red`, `printed_summary` | proved for all but the switching loop |
+| each printed C++ line means its Lean step; expression printers; switching printer | 21,600-result fuzz under UBSan, 3 planted bugs caught | trusted, fuzzed |
+| C++ → machine code | — | trusted (GCC) |
+| speed | — | measured only, below |
+
+**Speed** (ns per item, 1M items, median of 11 batches pinned to one core, GCC 11.4 on one VM; `-O2` /
+`-O3 -march=native`; "ours" is the generated loop, the switching one for records)
+
+| pipeline | C++ hand loop | C++ `std::views` | ours | ours vs the faster C++ |
+|---|---|---|---|---|
+| words: filter → map → sum | 0.78 / 0.76 | 3.15 / 3.36 | **0.68 / 0.64** | 1.1× / 1.2× |
+| words: filter → count | **0.38 / 0.38** | 3.28 / 3.16 | 0.60 / 0.48 | 0.6× / 0.8× (slower) |
+| words: filter → map → max | 3.25 / 3.32 | 3.15 / 3.07 | **0.88 / 0.76** | 3.6× / 4.0× |
+| records, random rows | 3.78 / 2.81 | 4.08 / 3.74 | **1.30 / 1.30** | 2.9× / 2.2× |
+| records, sorted rows | 1.49 / 2.81 | 1.08 / 1.10 | 1.07 / 1.08 | tie |
+| records, dropped runs of 256 | 1.48 / 2.86 | 1.08 / 1.11 | 1.06 / 1.07 | tie |
+| records, mixed stretches | 2.69 / 2.86 | 2.65 / 2.51 | **1.19 / 1.20** | 2.2× / 2.1× |
+| enumerate → find, no match | 0.30 / 0.30 | 0.30 / 0.29 | 0.40 / 0.22 | 0.75× / 1.3× (noisy) |
+
+The wins come from branch-free masks where the keep test is unpredictable; where GCC already removes the
+branch (count) or the branch is predictable (sorted, runs) we lose or tie. Hardware counters are blocked on
+this VM, so that cause is inferred from timings.
+
 ## What "zero cost" means here
 
 | claim | how it is established |
@@ -118,8 +153,10 @@ the switching loop `adaptA`. §From a later run, round 1. Unbolded rows are ties
   with `+ * ^ %`, `== <` and `&`; record pipelines `filter → map → summary` over word fields and parameters,
   with `+ * /`, `!= 0 >=` and `&`. No other adapters, no strings, no user functions.
 - **Proved vs trusted:** the loops are proved equal to the `Iter` chains (`opt_correct`, `fast2_correct`,
-  `fast3_correct`, `count_correct`, `red_correct`). The C++ printers (about 120 lines) and GCC are trusted; for the word sum and count loop, the printed
-  control flow (rounds, inner loop, tail, lane sum) is also modelled and proved (`printed_correct`, `printed_count`).
+  `fast3_correct`, `count_correct`, `red_correct`). The loop structure the printers emit (lane rounds, inner loop, tail, lane fold, `seen`; the
+  record search and masked pass) is modelled loop by loop in `iter/Iter/CLoop.lean` and proved equal too
+  (`printed_correct`, `printed_count`, `printed_red`, `printed_summary`). Still trusted: that each printed line
+  means its Lean step, the expression printers, the switching record printer, and GCC.
   The printers are fuzzed: 21,600 results from 1,800 random loops (each word pipeline as sum, count, `min?` and
   `max?`), record ones with random block size, window and switch threshold, compiled with
   UBSan, must match Lean exactly. Planted bugs in the masked and branchy bodies and in the `min` mask must be caught, and inverting

@@ -335,7 +335,8 @@ theorem red_correct (r : Red) (lanes : Nat) (q : Pipe) (k : UInt64) (xs : Array 
     rw [show (0 : OpW r.op r.id) = ⟨r.id⟩ from rfl, foldl_opW, List.foldl_cons,
       show r.op r.id x = x from congrArg OpW.v (r.laws.zero_add ⟨x⟩)]
 
-/-- prints `Pipe.redRun r lanes q`, with `b` the kept flag as a word; 0 lanes is printed as 1 -/
+/-- prints `Pipe.redRun r lanes q`, with `b` the kept flag as a word; 0 lanes is printed as 1. Its loops are
+modelled line for line by `Pipe.cRed` in `Iter/CLoop.lean` (`cRed_eq`). -/
 def Pipe.toCppRed (r : Red) (lanes : Nat) (q : Pipe) (name : String) : String :=
   let n := max lanes 1
   let (op, id, body) := match r with
@@ -572,7 +573,7 @@ def Q.toCpp (fields params : List String) : Q → String
 
 /-- C++ `name(rows, p0, p1, ...)` computing `SPipe.fast2`; `fields[i]` is the C++ expression for word field
 `i` of row `e`, and the includer defines the row type with a `name` member and `Summ` with `count`, `total`,
-`first`, `last` -/
+`first`, `last`. Its two loops are modelled by `SPipe.cRun` in `Iter/CLoop.lean` (`cRunS_eq`). -/
 def SPipe.toCpp (q : SPipe) (nParams : Nat) (name rowType : String) (fields : List String) : String :=
   let ps := (List.range nParams).map (s!"p{·}")
   let params := String.join (ps.map (s!", std::uint64_t {·}"))
