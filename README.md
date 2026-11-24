@@ -75,7 +75,7 @@ ns per item, 1,000,000 items, `g++ -O2`:
 | pipeline | C++ hand | C++ `std::views` | ours | ours vs the faster of the two |
 |---|---|---|---|---|
 | `filter → map → sum`, words | 0.81 | 3.26 | 0.76 | 1.07× |
-| `filter → map → summary`, records | 4.09 | 4.26 | 1.83 | **2.2×** |
+| `filter → map → summary`, records | 3.92 | 4.18 | 1.82 | **2.2×** |
 | `enumerate → find`, no match | 0.52 | 0.29 | 0.40 | 0.7× (slower) |
 
 `g++ -O3 -march=native` (AVX2):
@@ -83,7 +83,7 @@ ns per item, 1,000,000 items, `g++ -O2`:
 | pipeline | C++ hand | C++ `std::views` | ours | ours vs the faster of the two |
 |---|---|---|---|---|
 | `filter → map → sum`, words | 0.78 | 3.16 | 0.59 | **1.3×** |
-| `filter → map → summary`, records | 3.02 | 3.90 | 1.32 | **2.3×** |
+| `filter → map → summary`, records | 3.18 | 4.48 | 1.58 | **2.0×** |
 | `enumerate → find`, no match | 0.53 | 0.33 | 0.25 | **1.3×** |
 
 - **Clear win:** the record summary. The hand loop branches on every row and threads four fields through
@@ -91,14 +91,15 @@ ns per item, 1,000,000 items, `g++ -O2`:
 - **Small win:** the word sum, where GCC already makes the hand loop branch-free.
 - **Tie:** the search. It reads 8 MB per call and is limited by memory, and its times moved by up to 1.8×
   between runs, so its rows are within noise.
-- **Generated, not copied:** the word-sum loop is generated. `iter/Iter/Gen.lean` has a small pipeline
-  language, an optimiser `opt` and a proof, `opt_correct`, that the optimised loop equals the `Iter` chain for
-  every pipeline, lane count and input. `iter/GenCpp.lean` prints it to `iter/gen/proved_gen.hpp`, which
-  `bench.cpp` includes. The printer (30 lines) is the one unproved step. It also handles a safety gap:
-  Lean defines `x % 0 = x`, C++ leaves it undefined, so `%` is printed with a guard unless the divisor is a
-  nonzero literal.
-- **Still hand-written:** the records and search loops are copied from their proofs by hand and checked
-  against the hand loops' results, not proved.
+- **Generated, not copied:** the word-sum and record-summary loops are generated. `iter/Iter/Gen.lean` has
+  two small pipeline languages, optimisers and proofs (`opt_correct`, `fast_correct`) that the optimised loop
+  equals the `Iter` chain for every pipeline, lane count and input. `iter/GenCpp.lean` prints both to
+  `iter/gen/proved_gen.hpp`, which `bench.cpp` includes. The printer is the one unproved step. It also handles
+  a safety gap: Lean defines `x % 0 = x` and `x / 0 = 0`, C++ leaves both undefined, so `%` and `/` are printed
+  with a guard unless the divisor is a nonzero literal.
+- **Still hand-written:** the search loop is copied from its proof by hand and checked against the hand
+  loop's results, not proved.
+- **How the proofs work:** [docs/PROOFS.md](docs/PROOFS.md) walks through them step by step.
 - **Details matter:** with `&&` instead of `&` in the records filter, the 2.2× disappears.
 
 ## Was this worth doing?
@@ -150,5 +151,6 @@ the first bad line in a file manifest.
 | `iter/` | the `tasks` CLI, its generated-input checker, the axiom audit, `check_c.py`, and the Lean and C++ benchmarks (`Bench.lean`, `bench.cpp`) |
 | `tasks/` | CLI fixtures, expected outputs and `replay.sh` |
 | `docs/DETAILS.md` | theorem list, cost model, CLI formats and exit codes, limits |
+| `docs/PROOFS.md` | how the rewrite proofs work, step by step |
 
 Earlier experiments (the first `.view()` API, INT8 kernels, Bend and APL work) are on the `archive` branch.

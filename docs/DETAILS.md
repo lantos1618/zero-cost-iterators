@@ -130,8 +130,15 @@ pipeline, lane count and input, `(opt lanes q).run k xs = q.run k xs`, where `q.
 `wordPipe_gen` instantiates it for the benchmark's pipeline. `Loop.toCpp` prints the loop; `replay.sh`
 checks the committed `gen/proved_gen.hpp` is exactly what it prints.
 
-`bench.cpp`'s `provedU` comes from that header; `provedA` and `provedF` are hand transcriptions of these loops; they are compared with the hand
-loops on several inputs (`results_equal`), not proved.
+`SPipe` is `filter keep → map (label, pay) → running (count, total, first, last)` over rows of word fields,
+with expressions built from fields, parameters, literals, `+`, `*`, `/`, `!= 0`, `>=` and `&`. `SPipe.fast` is
+what the printed loop computes (masked count and total over `lanes` accumulators, a forward and a backward
+search); `fast_correct` proves it equals `SPipe.run`, the `Iter` chain, and `recPipe_gen` instantiates it for
+the benchmark. `SPipe.toCpp` prints it. The count is a `Nat` in Lean and a `uint64_t` in C++, which agree for
+any array that fits in memory.
+
+`bench.cpp`'s `provedU` and `provedA` come from that header; `provedF` is a hand transcription of the block
+search, compared with the hand loop on several inputs (`results_equal`), not proved.
 
 **CLI (`iter/TaskCore.lean`).** `logPipe_spec`, `salesPipe_spec`, `salesPipe_keys` and `manifestPipe_spec`
 are one-line compositions of the lemmas above. `entryBad_trace`: tracing doesn't change the answer.

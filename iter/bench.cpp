@@ -14,8 +14,6 @@
 #include <utility>
 #include <vector>
 
-#include "gen/proved_gen.hpp"  // provedU, generated from Lean (iter/GenCpp.lean)
-
 #define NOINLINE __attribute__((noinline))
 using u64 = std::uint64_t;
 namespace v = std::views;
@@ -91,30 +89,10 @@ NOINLINE Hit eagerF(const std::vector<u64>& xs, u64 t) {
 }
 
 
-// Proved rewrites (iter/Iter/Rewrite.lean). provedU is generated (gen/proved_gen.hpp); the two below are
-// written by hand: the filter becomes a bit-mask select
-// (sum_select, select_mask), the sum is split over 4 independent accumulators, item j in lane j % 4
-// (sum_lanes), and the summary's first/last become a forward and a backward search (summary_split,
-// head_filter, getLast_filter). The proofs cover + on 64-bit words; the C++ transcription is checked by the
-// results_equal test, not proved.
-NOINLINE Summ provedA(const std::vector<Emp>& es, u64 minSal, u64 pct) {
-  auto keep = [minSal](const Emp& e) { return e.active & (e.salary >= minSal); };  // & not &&: no branch
-  u64 cnt[4] = {0, 0, 0, 0}, tot[4] = {0, 0, 0, 0};
-  std::size_t n = es.size(), i = 0;
-  auto add = [&](std::size_t lane, const Emp& e) {
-    u64 m = 0 - (u64)keep(e);
-    cnt[lane] += 1 & m;
-    tot[lane] += (e.salary * pct / 100) & m;
-  };
-  for (; i + 4 <= n; i += 4) for (int j = 0; j < 4; ++j) add(j, es[i + j]);
-  for (; i < n; ++i) add(i % 4, es[i]);
-  Summ s;
-  s.count = cnt[0] + cnt[1] + cnt[2] + cnt[3];
-  s.total = tot[0] + tot[1] + tot[2] + tot[3];
-  for (std::size_t j = 0; j < n; ++j) if (keep(es[j])) { s.first = es[j].name; break; }
-  for (std::size_t j = n; j-- > 0;) if (keep(es[j])) { s.last = es[j].name; break; }
-  return s;
-}
+// Proved rewrites. provedU and provedA are generated from Lean (gen/proved_gen.hpp, proved by
+// Iter.Gen.wordPipe_gen and Iter.Gen.recPipe_gen; the printer is trusted). provedF below is written by hand
+// from Iter.Rewrite.chain_find_blocks and checked only by the results_equal test.
+#include "gen/proved_gen.hpp"
 
 NOINLINE Hit provedF(const std::vector<u64>& xs, u64 t) {
   // blocks of 32 (find_blocks): a branch-free "any match?" per block, then a search inside the one block that has it
