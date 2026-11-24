@@ -1,2 +1,2 @@
 trace: pred line 1
-trace: model findPulls=1 (untraced recount); lines buffered before find=2
+trace: pulls=1 (counted rerun); lines buffered before find=2

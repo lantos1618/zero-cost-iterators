@@ -1,1 +1,0 @@
-{"name": "buf", "prog": ["alloc", {"loop": ["LdA", "LdB", "Mul", "StT"]}, {"loop": ["LdT", "Acc"]}]}

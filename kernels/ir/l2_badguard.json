@@ -1,1 +1,0 @@
-{"name": "l2_badguard", "max_n": 131071, "prog": [{"loop": ["LdA", "LdB", "Sub", "Sq", "Acc"]}]}

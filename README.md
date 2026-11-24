@@ -1,61 +1,77 @@
 # zero-cost-iterators
 
-Write a data pipeline as a chain of small steps, run it as one loop, and have Lean prove the loop gives the same
-answer as running the steps one after another.
+Chain `filter`, `map`, `take` and `enumerate` over an array or list, then finish with `foldl`, `find?`,
+`groupFold` or a plain `for` loop. The chain runs as one loop with no intermediate lists, and Lean proves it
+computes exactly what the step-by-step list program computes.
 
 ```lean
-sales.view
-  |>.filter (fun s => s.status == "paid")                     -- keep paid rows (simplified; see bridge/TaskCore.lean)
-  |>.map    (fun s => (s.product, s.qty, s.qty * s.unitCents)) -- product, units, revenue
-  |>.fuse                                                       -- run every step in a single pass
-  |>.groupFold (·.1) agg0 aggStep                               -- one running total per product
+import Iter
+
+def paidRevenue (sales : Array Sale) : Nat :=
+  sales.iter
+    |>.filter (·.paid)
+    |>.map (fun s => s.qty * s.unitCents)
+    |>.foldl 0 (· + ·)
+
+-- the proof is the same chain, written with the matching lemmas
+example (sales : Array Sale) :
+    paidRevenue sales = ((sales.toList.filter (·.paid)).map (fun s => s.qty * s.unitCents)).foldl (· + ·) 0 :=
+  (((Iter.denotes_array sales).filter _).map _).foldl _ _
 ```
 
-The repository includes `tasks`, a small command-line tool built on these pipelines. It summarises an access
-log, totals sales per product from a CSV, and finds the first bad line in a file manifest.
+Callbacks can have effects. This loop keeps a symbol table and throws at the first duplicate; `Denotes.forIn`
+proves it behaves exactly like the same `for` loop over the filtered list, including where it stops:
+
+```lean
+def declare (names : Array String) : Except String (List String) := do
+  let mut table : List String := []
+  for n in names.iter.filter (· != "_") do
+    if table.contains n then throw s!"duplicate {n}"
+    table := n :: table
+  return table
+```
+
+## What "zero cost" means here
+
+| claim | how it is established |
+|---|---|
+| a chain computes the staged list program, in any lawful monad, including early exit | Lean theorems, `iter/Iter/Basic.lean` |
+| in a cost model: same result, **0 intermediate allocations**, at most one read per item, and exactly the staged program's callback calls | Lean theorems, `iter/Iter/Cost.lean` |
+| three wasteful versions that give the same answers are rejected by their costs | Lean theorems, `iter/Iter/Cost.lean` |
+| the C Lean emits for `filter`/`map`/`foldl` chains has no closures, no indirect calls and no more allocation sites than a hand-written loop | script over the emitted C, `iter/check_c.py` |
+| speed against a hand-written loop | one benchmark on one VM (below) |
+
+Benchmark, 1,000,000 items, nanoseconds per item:
+
+| pipeline | hand loop | `Iter` chain | eager lists |
+|---|---|---|---|
+| `filter → map → foldl` on `UInt64` | 1.85 | 2.09 | 30.2 |
+| `filter → map → foldl` on records | 8.43 | 8.43 | |
+| `enumerate → find?` (no match) | 1.98 | 13.3 | |
+
+Not covered: the cost model is not formally linked to Lean's compiler, and `enumerate` and `take` still allocate
+in compiled code (the last row). See `docs/DETAILS.md` for these limits.
 
 ## Try it
 
-You need Lean 4.15.0 installed through [elan](https://github.com/leanprover/elan). Run from the repository root:
+You need Lean 4.15.0 through [elan](https://github.com/leanprover/elan). From the repository root:
 
 ```sh
-(cd bridge && lake build tasks)
-bridge/.lake/build/bin/tasks sales tasks/fixtures/sales.csv
+(cd iter && lake build)
+iter/.lake/build/bin/tasks sales tasks/fixtures/sales.csv
+./replay.sh        # every proof and check; BENCH=1 ./replay.sh also runs the benchmark
 ```
 
-```text
-file: tasks/fixtures/sales.csv
-rows: 9 (kept: 7; filter: status=paid min_qty=0)
-product,lines,units,revenue_cents,revenue
-apple,2,4,505,5.05
-pear,3,6,1400,14.00
-fig,2,2,700,7.00
-TOTAL,7,12,2605,26.05
-```
-
-Refunded rows are dropped. Products appear in the order they are first seen, and money is kept in whole cents.
-The other two commands:
-
-```sh
-bridge/.lake/build/bin/tasks logsum tasks/fixtures/access.log
-bridge/.lake/build/bin/tasks manifest tasks/fixtures/manifest_bad.txt   # exits 1: line 4 is invalid
-```
-
-## What is proved
-
-- **Proved (Lean):** each fused pipeline returns exactly what the step-by-step version returns, for any element
-  types and any pure functions. Folds need no associativity. `groupFold` keeps first-seen key order.
-- **Tested, not proved:** file reading, the parsers, output formatting and the compiled binary. The tests compare
-  against hand-written expected outputs and against 900 generated inputs.
-- **Not claimed:** streaming I/O (each file is read whole first), performance of the CLI, and a verified compiler.
+`tasks` is a small CLI built on the library. It summarises an access log, totals sales per product and finds
+the first bad line in a file manifest.
 
 ## Layout
 
 | path | contents |
 |---|---|
-| `bridge/` | the Lean project: the `.view()` library, the proofs, and the `tasks` CLI (`TaskCore.lean`, `Tasks.lean`) |
-| `tasks/` | CLI fixtures, expected outputs, and `replay.sh` to check them |
-| `kernels/` | earlier experiments: INT8 kernels, Bend laws, APL models, and their test suite |
-| `docs/DETAILS.md` | input formats, exit codes, the theorem list, and how everything is tested |
-| `history/` | earlier milestone reports and raw replay logs |
-| `replay.sh` | rebuilds and rechecks everything (needs Bend and C compilers; see `docs/DETAILS.md`) |
+| `iter/Iter/` | the library: `Basic` (iterators and their proofs), `Group` (`groupFold`), `Cost` (cost model) |
+| `iter/` | the `tasks` CLI, its generated-input checker, the axiom audit, the benchmark and `check_c.py` |
+| `tasks/` | CLI fixtures, expected outputs and `replay.sh` |
+| `docs/DETAILS.md` | theorem list, cost model, CLI formats and exit codes, limits |
+
+Earlier experiments (the first `.view()` API, INT8 kernels, Bend and APL work) are on the `archive` branch.

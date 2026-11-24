@@ -1,28 +1,23 @@
 #!/usr/bin/env bash
-# Full replay: first the library/kernel suite (kernels/replay.sh -> kernels/results/), then the `tasks` CLI:
-# TaskCore build + axiom audit, no-sorry scan, 300-input fixed-seed reference/mutant check per task,
-# and the 34-command fixture replay against hand-written expected outputs (tasks/replay.sh).
-# Raw outputs + exit codes -> results/*.txt. Exit 0 iff both parts have no unexpected row.
+# Full replay of the `Iter` library and the `tasks` CLI, Devin VM / any machine with elan.
+# Build, axiom audit, theorem list, no-sorry scan, 300 generated inputs per task, 34 fixture
+# commands, and the emitted-C allocation check. BENCH=1 also runs the benchmark (not gated).
+# Raw outputs + exit codes -> results/*.txt. Exit 0 iff no row is unexpected.
 set -u
 cd "$(dirname "$0")"
 export PATH=$HOME/.elan/bin:$PATH
-kernels/replay.sh; PREV=$?
 UNEXPECTED=0; TOTAL=0
 R=$PWD/results; rm -rf "$R"; mkdir -p "$R"
-sec() { printf '\n==================== %s\n' "$1"; }
 run() { local n=$1 d=$2 want=$3; shift 3; (cd "$d" && "$@") > "$R/$n.txt" 2>&1; local s=$?
   echo "exit=$s" >> "$R/$n.txt"; TOTAL=$((TOTAL+1)); local tag=ok; [ "$s" = "$want" ] || { tag=UNEXPECTED; UNEXPECTED=$((UNEXPECTED+1)); }
-  printf '%-34s exit=%-3s want=%-3s %-10s %s\n' "$n" "$s" "$want" "$tag" "$(grep -E 'audited|TASKCHECK fails|TASKS_REPLAY|error' "$R/$n.txt" | tail -1 | cut -c1-100)"; }
-sec "tasks CLI"
-run tasks_build bridge 0 lake build TaskCore tasks taskcheck
-run taskcore_audit bridge 0 lake env lean TaskAudit.lean
-run tasks_theorems_listed . 0 sh -c 'for n in logPipe_spec salesPipe_spec salesPipe_keys manifestPipe_spec entryBad_trace; do grep -E "^AUDIT Tasks\.$n TaskCore \[" results/taskcore_audit.txt || { echo MISSING $n; exit 1; }; done'
-run tasks_no_sorry . 1 grep -rnwE "sorry|admit|native_decide|axiom" bridge/TaskCore.lean bridge/Tasks.lean bridge/TaskCheck.lean
-run taskcheck_generated . 0 bridge/.lake/build/bin/taskcheck
-cat "$R/taskcheck_generated.txt"
-run tasks_fixture_replay . 0 tasks/replay.sh
-grep -E '^--- |TASKS_REPLAY' "$R/tasks_fixture_replay.txt"
-sec "summary"
-echo "kernels suite exit=$PREV (see its TOTAL/UNEXPECTED line above)"
-echo "tasks TOTAL=$TOTAL UNEXPECTED=$UNEXPECTED"
-[ $PREV = 0 ] && [ $UNEXPECTED = 0 ]
+  printf '%-16s exit=%-3s want=%-3s %-10s %s\n' "$n" "$s" "$want" "$tag" "$(grep -E 'audited|all listed|MISSING|TASKCHECK fails|TASKS_REPLAY|CHECK_C|error' "$R/$n.txt" | tail -1 | cut -c1-90)"; }
+run build iter 0 lake build
+run audit iter 0 lake env lean TaskAudit.lean
+run theorems . 0 sh -c 'for n in Iter.denotes_array Iter.Denotes.take Iter.Denotes.enumerate Iter.Denotes.foldl Iter.Denotes.find? Iter.Denotes.forIn Iter.Denotes.groupFold Iter.Cost.lower_result Iter.Cost.lower_allocs Iter.Cost.lower_pulls_le Iter.Cost.lower_pulls Iter.Cost.lower_calls Iter.Cost.lower_eq_hand Iter.Cost.mut_staged Iter.Cost.mut_dup Iter.Cost.mut_noexit Tasks.logPipe_spec Tasks.salesPipe_spec Tasks.salesPipe_keys Tasks.manifestPipe_spec; do grep -qF "AUDIT $n " results/audit.txt || { echo MISSING $n; exit 1; }; done; echo all listed'
+run no_sorry . 1 grep -rnwE "sorry|admit|native_decide|axiom" iter --include=*.lean --exclude-dir=.lake
+run taskcheck . 0 iter/.lake/build/bin/taskcheck
+run fixtures . 0 tasks/replay.sh
+run check_c iter 0 python3 check_c.py
+[ "${BENCH:-0}" = 1 ] && { run bench iter 0 .lake/build/bin/bench; grep BENCH "$R/bench.txt"; }
+echo "TOTAL=$TOTAL UNEXPECTED=$UNEXPECTED"
+[ $UNEXPECTED = 0 ]

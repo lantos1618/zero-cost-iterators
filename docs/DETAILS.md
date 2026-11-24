@@ -1,29 +1,29 @@
 # Details
 
-Everything the short README leaves out: the pipeline vocabulary, input formats, exit codes, the theorems, how
-the tool is tested, and how to rerun every check. Paths are relative to the repository root.
+Everything the short README leaves out. Paths are relative to the repository root.
 
-## The pipeline vocabulary
+## The API (`iter/Iter/Basic.lean`, `iter/Iter/Group.lean`)
 
-- `xs.view` turns a list into a pipeline description; nothing runs yet. `.filter` and `.map` add steps.
-- `.fuse` asks for the steps to run together in a single pass, without building an intermediate list after each
-  step.
-- `.foldl init step` runs the pipeline and combines the results left to right, in input order. The step does not
-  have to be associative.
-- `.groupFold key init step` is like `foldl`, but keeps each key and its own running value (accumulator), with keys
-  in first-seen order and each key's rows folded in input order. The step you write decides what the accumulator
-  holds: here a bounded total, but it could also collect the rows. A key's rows don't have to be adjacent.
-- `.enumerate` pairs each item with its index, and `.find p` returns the first item matching `p` and stops there.
-- Each terminal returns `Except String _`, which is an error only when a request is refused, for example running
-  a step in parallel when that would change the result.
+An `Iter α` is its own loop: `fold k b` runs the body `k` over the items, in any monad, and stops at the first
+`.done`. Adapters only wrap the body, so a chain is one loop over the source.
 
-The three pipelines, as written in `bridge/TaskCore.lean`:
+| | |
+|---|---|
+| sources | `xs.iter` for `List` and `Array` |
+| adapters | `.map f`, `.filter p`, `.take n` (stops pulling after `n`), `.enumerate` (0-based positions) |
+| terminals | `.foldl init step`, `.find? p` (stops at the hit), `.groupFold key init step`, and `for x in it do ...` |
+
+Terminals return plain values; there is no fusion flag and no `Except` wrapper. `foldl` needs no associativity.
+`groupFold` keeps one accumulator per distinct key, keys in first-seen order, each key's items folded in input
+order; its table is an association list, so each item costs O(number of keys).
+
+The CLI pipelines, as written in `iter/TaskCore.lean`:
 
 | command | pipeline |
 |---|---|
-| `tasks logsum` | `rs.view.filter (logKeep o) \|>.map toHit \|>.fuse \|>.foldl logS0 logStep` |
-| `tasks sales` | `rs.view.filter (saleKeep o) \|>.map saleLine \|>.fuse \|>.groupFold (·.1) agg0 aggStep` |
-| `tasks manifest` | `ls.view.enumerate \|>.fuse \|>.find (entryBad tr)` |
+| `tasks logsum` | `rs.iter.filter (logKeep o) \|>.map toHit \|>.foldl logS0 logStep` |
+| `tasks sales` | `rs.iter.filter (saleKeep o) \|>.map saleLine \|>.groupFold (·.1) agg0 aggStep` |
+| `tasks manifest` | `ls.iter.enumerate.find? (entryBad tr)` |
 
 Parsing happens before the pipeline and is not covered by the proofs.
 
@@ -74,70 +74,82 @@ result: INVALID at line 4: path contains '..'
 entry: assets/../secret.key 64 0badc0de
 ```
 
-## What is proved, tested, and not claimed
 
-**Proved in Lean, about the Lean source:** each of the three pipelines equals a plain step-by-step reference.
+## What is proved
 
-| command | theorem (in `bridge/TaskCore.lean`) | built on library theorem |
-|---|---|---|
-| logsum | `logPipe_spec`: equals filtering the list, then mapping, then a left-to-right `foldl` | `foldl_view_generic` / `push_fold` |
-| sales | `salesPipe_spec`: equals an independent stable group-then-fold; `salesPipe_keys`: products appear once each, in first-seen order | `groupFold_view_generic` / `groupFold_correct` |
-| manifest | `manifestPipe_spec`: equals `List.find?` on the numbered lines; `entryBad_trace`: tracing doesn't change the answer | `View.find_ok`; `findRun_prefix` gives the exact stopping point in the model |
+**Meaning (`iter/Iter/Basic.lean`, `iter/Iter/Group.lean`).** `Denotes it l` says that running `it` with any
+body, in any lawful monad, is the same as running that body over the list `l` left to right, stopping at the
+first `.done`. Sources and adapters preserve it, so every chain gets its staged meaning by composition:
 
-The library theorems hold for any element and result types and any pure, total Lean callbacks, with no
-associativity assumption. The task-level audit covers 29 declarations, all with only Lean's standard axioms and
-no `sorry`.
+| theorem | statement |
+|---|---|
+| `denotes_list`, `denotes_array` | `xs.iter` denotes `xs` (`a.toList` for arrays) |
+| `Denotes.map`, `.filter`, `.take`, `.enumerate` | the adapter denotes `l.map f`, `l.filter p`, `l.take n`, `l.enum` |
+| `Denotes.foldl`, `Denotes.find?` | the terminal equals `List.foldl` / `List.find?` on `l` |
+| `Denotes.forIn` | `for x in it` equals `for x in l`, in any lawful monad (state, exceptions) |
+| `Denotes.groupFold` | equals an independent stable group-then-fold (`groupRef`) |
 
-**Runtime-tested only:**
-- reading the file, UTF-8 decoding, splitting lines, the log/CSV parsers, the manifest rule as written, and
-  report formatting;
-- the compiled native binary, since the Lean compiler is trusted, not verified;
-- the manifest's early stop in the binary. With `--trace` on `manifest_bad.txt`, exactly 4 validation calls are
-  printed and none for lines 5–8, which are deliberately invalid garbage. An eager control on the same file makes
-  all 8 calls.
+**Cost (`iter/Iter/Cost.lean`).** A small IR: a chain of `map`/`filter` (`Chain`), a per-item loop body
+(`Body`), and programs that are either one loop or a materialising pass (`Prog.buffer`, the only construct that
+allocates). Costs are item reads (`pulls`), callback calls (`calls`) and intermediate cells (`allocs`).
+`Chain.staged` is the independent eager reference, one new list per adapter. `lower` builds one loop. For every
+chain and terminal:
 
-**How:**
-- 34 CLI commands are compared byte for byte, stdout, stderr and exit code, against hand-written expected files
-  (`tasks/replay.sh`). Exits 0, 1, 2 and 64 all occur.
-- 300 generated files per command, from a fixed seed, are compared with independent references written without
-  pipelines (`taskcheck`). This includes empty, all-filtered and repeated-key cases.
-- Three deliberately broken versions must be caught, and are:
-  - a maximum that moves to the last tie;
-  - new products inserted at the front;
-  - reporting the last invalid manifest line instead of the first.
+| theorem | statement |
+|---|---|
+| `lower_result` | same answer as the staged program, including early-exit terminals |
+| `lower_allocs` | 0 intermediate allocations |
+| `lower_pulls_le` | at most one read per source item |
+| `lower_pulls`, `lower_calls` | for terminals that never stop early: exactly one read per item and exactly the staged program's calls |
+| `lower_eq_hand` | `filter p` then `map f` lowers to the loop one writes by hand |
+| `toIter_denotes` | the same chain built with the real `Iter` adapters has the staged meaning |
 
-**Not claimed:**
-- That early stopping saves I/O. The whole file is read and split before the pipeline runs; only validation calls
-  are skipped.
-- Any performance result for these commands; no benchmark was run for them.
-- Proofs about parsing or I/O, effectful callbacks, a parallel or GPU backend, or a verified compiler.
+Worked example (`ex_fold`, `ex_find`): on `[1..6]`, `filter even → map (·*10)`, a sum costs 6 reads, 12 calls,
+0 cells fused versus 12 reads, 12 calls, 6 cells staged; a `find (· > 20)` stops after 4 reads. Three mutants
+give the same answers and are rejected by cost: materialising every stage (`mut_staged`, 9 cells), testing each
+filter twice (`mut_dup`, 15 calls), and a find that keeps reading (`mut_noexit`, 6 reads).
+
+**CLI (`iter/TaskCore.lean`).** `logPipe_spec`, `salesPipe_spec`, `salesPipe_keys` and `manifestPipe_spec`
+are one-line compositions of the lemmas above. `entryBad_trace`: tracing doesn't change the answer.
+
+`iter/TaskAudit.lean` lists every theorem in `Iter` and `TaskCore` (115, auto-generated equation lemmas
+excluded) and fails if any uses an axiom beyond `propext`, `Classical.choice` and `Quot.sound`. No `sorry`.
+
+## What is checked, not proved
+
+- **Emitted C** (`iter/check_c.py`): for each benchmarked chain it follows the specialised loop Lean generates
+  and counts heap allocation sites, closure allocations and indirect calls (`lean_apply_*`). Gate: `filter →
+  map → foldl` on words and on records has no closures, no indirect calls and no more allocation sites than the
+  hand loop. `enumerate → find?` is reported but not gated (below).
+- **CLI:** file reading, parsers, formatting and the binary. 34 commands compared byte for byte with
+  hand-written expected files (`tasks/replay.sh`), exits 0, 1, 2 and 64; 300 fixed-seed generated inputs per
+  command against references written without `Iter` (`taskcheck`); three planted mutants caught. With `--trace`
+  on `manifest_bad.txt` exactly 4 validation calls are printed, against 8 for an eager control.
+
+## Limits
+
+- The cost model is a model. Nothing proves that Lean's compiler preserves it; `check_c.py` and the benchmark
+  are the evidence for compiled code.
+- `take` and `enumerate` carry their counter in a pair with the accumulator. In Lean 4.15's output this pair,
+  and the `(index, item)` pair, are heap cells per item: `enumerate → find?` is about 6.7× slower than a hand
+  loop. The cost model does not cover these two adapters.
+- `groupFold` uses an association list: O(keys) work per item.
+- The CLI reads each file whole before the pipeline runs, so early exit saves only validation calls.
+- No parallel backend.
+
+## Benchmark
+
+`iter/Bench.lean`, run by `BENCH=1 ./replay.sh`: 1,000,000 items, each timing the median of 5 batches of 20
+calls, after a warm-up call; two rounds, the second reported in the README. One VM, not repeated across
+machines; round-to-round noise on this VM was up to 2× on single rows.
 
 ## Rerunning every check
 
-```sh
-cp ~/.bend/bend2/base.bend kernels/bendlink/base.bend.pinned   # third-party Bend prelude, not committed
-./replay.sh                                                      # several minutes; raw outputs in results/
-```
-
-`replay.sh` runs `kernels/replay.sh` (the library and kernel suite) and then the `tasks` checks: build, axiom
-audit, no-`sorry` scan, `taskcheck` (generated inputs) and `tasks/replay.sh` (fixtures). It exits 0 only if no
-row is unexpected. To check only the CLI fixtures: `(cd bridge && lake build tasks taskcheck) && tasks/replay.sh`.
-
-| needed for | tool or file (not in this repository) |
-|---|---|
-| the CLI | Lean `leanprover/lean4:v4.15.0` through `elan` (pinned in `bridge/lean-toolchain`); no Lake packages |
-| `kernels/replay.sh` | Bend 2.0.40 at `~/.bend/bin/bend`, gcc, clang, python3, about 5 GiB free RAM |
-| its Bend-prelude rows | `kernels/bendlink/base.bend.pinned`, a copy of Bend 2.0.40's `~/.bend/bend2/base.bend` |
-| two byte-identity rows | earlier private folders `~/i8dot-bend-r5` and `~/i8red6` |
-| the old INT8 benchmark (`kernels/bench/`, not rerun) | gcc and a SIFT10K (siftsmall) archive passed as `--dataset FILE`; expected hashes in `kernels/bench/dataset_members.sha256` |
-
-## Benchmarks
-
-No benchmark was run for the CLI. Earlier library benchmarks (synthetic records, n = 200,000, one VM, view time
-divided by handwritten-loop time) are reported in `history/README_i8red9.md` §2 and §5, with the raw log in
-`history/records/bench_gen_shapes_31x2.txt`: about 0.97–1.00 when the pipeline's `map` only projects fields, and
-2.04–2.08 (`foldl`) and 1.30–1.31 (`groupFold`) when the `map` builds a tuple.
+`./replay.sh` builds `iter/`, runs the audit, checks the theorem list, scans for `sorry`, runs `taskcheck`, the
+fixture replay and `check_c.py`, and exits 0 only if no row is unexpected. It needs only Lean 4.15.0 through
+`elan` (pinned in `iter/lean-toolchain`) and python3.
 
 ## History
 
-`history/` holds the earlier milestone reports and replay transcripts; see `history/README.md`.
+The previous API (`.view`/`.fuse` with a pull-machine model), the INT8/Bend/APL kernels and the milestone
+reports are on the `archive` branch, unchanged from commit `8cf63c2`.

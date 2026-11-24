@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Replays every documented `tasks` command against hand-written expected outputs (tasks/expected/*),
 # byte for byte, plus the exit code. Run from the project root. Devin-only.
-# Usage: tasks/replay.sh [BIN_DIR]   (default bridge/.lake/build/bin)
+# Usage: tasks/replay.sh [BIN_DIR]   (default iter/.lake/build/bin)
 set -u
 cd "$(dirname "$0")/.."
-B=${1:-bridge/.lake/build/bin}
+B=${1:-iter/.lake/build/bin}
 E=tasks/expected; F=tasks/fixtures
 N=0; FAIL=0
 c() { # name want_exit expected_stdout|- expected_stderr|- cmd...

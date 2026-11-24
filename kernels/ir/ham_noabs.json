@@ -1,1 +1,0 @@
-{"name": "ham_noabs", "max_n": 131071, "prog": [{"loop": ["LdA", "LdB", "Sub", "Bit", "Acc"]}]}

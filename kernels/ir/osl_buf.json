@@ -1,1 +1,0 @@
-{"name": "osl_buf", "max_n": 8421504, "prog": ["alloc", {"loop": ["LdA", "LdB", "Sub", "Pos", "StT"]}, {"loop": ["LdT", "Acc"]}]}
