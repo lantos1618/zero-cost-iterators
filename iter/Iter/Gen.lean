@@ -1,5 +1,6 @@
 import Iter.Rewrite
 import Iter.More
+import Iter.CExpr
 /-!
 # A proved optimiser for word pipelines, with a C++ printer
 
@@ -118,20 +119,29 @@ theorem opt_correct (lanes : Nat) (q : Pipe) (k : UInt64) (xs : Array UInt64) :
 
 /-! ## C++ printer (trusted) -/
 
-def E.toCpp : E → String
-  | .x => "x"
-  | .k => "k"
-  | .lit n => s!"{n}ULL"
-  | .add a b => s!"({a.toCpp} + {b.toCpp})"
-  | .mul a b => s!"({a.toCpp} * {b.toCpp})"
-  | .xor a b => s!"({a.toCpp} ^ {b.toCpp})"
-  | .mod a (.lit n) => if n == 0 then a.toCpp else s!"({a.toCpp} % {n}ULL)"
-  | .mod a b => s!"(({b.toCpp}) == 0 ? {a.toCpp} : {a.toCpp} % {b.toCpp})"
+open Iter.C in
+def E.toC : E → CE
+  | .x => .var .x
+  | .k => .var .k
+  | .lit n => .lit n
+  | .add a b => .bin .add a.toC b.toC
+  | .mul a b => .bin .mul a.toC b.toC
+  | .xor a b => .bin .xor a.toC b.toC
+  | .mod a (.lit n) => if n = 0 then a.toC else .bin .mod a.toC (.lit n)
+  | .mod a b => .cond (.bin .eq b.toC (.lit 0)) a.toC (.bin .mod a.toC b.toC)
 
-def P.toCpp : P → String
-  | .eq a b => s!"({a.toCpp} == {b.toCpp})"
-  | .lt a b => s!"({a.toCpp} < {b.toCpp})"
-  | .and p q => s!"({p.toCpp} & {q.toCpp})"
+open Iter.C in
+def P.toC : P → CE
+  | .eq a b => .bin .eq a.toC b.toC
+  | .lt a b => .bin .lt a.toC b.toC
+  | .and p q => .bin .band p.toC q.toC
+
+open Iter.C in
+def wordNm : Slot → String
+  | .x => "x" | .k => "k" | .b => "b" | _ => "0ULL"
+
+def E.toCpp (e : E) : String := e.toC.print wordNm
+def P.toCpp (p : P) : String := p.toC.print wordNm
 
 /-- the lane loop over `xs`: `step lane` runs with item `x`; full rounds of `n` items, then the tail -/
 def laneLoop (n : Nat) (step : String → String) : List String := [
@@ -151,7 +161,7 @@ def Loop.toCpp (L : Loop) (name : String) (br : Bool := false) : String :=
   let n := max L.lanes 1
   String.intercalate "\n" ([header "std::uint64_t" name, "  (void)k;", s!"  std::uint64_t acc[{n}] = \{};"] ++
     laneLoop n (fun lane => if br then s!"if ({L.keep.toCpp}) acc[{lane}] += {L.body.toCpp};"
-      else s!"acc[{lane}] += {L.body.toCpp} & (0 - (std::uint64_t){L.keep.toCpp});") ++ [
+      else s!"acc[{lane}] += {(C.maskC L.body.toC (.cast L.keep.toC)).print wordNm};") ++ [
     "  std::uint64_t total = 0;",
     "  for (std::uint64_t a : acc) total += a;",
     s!"  return total * {L.scale.toCpp};",
@@ -161,7 +171,7 @@ def Loop.toCpp (L : Loop) (name : String) (br : Bool := false) : String :=
 def Loop.toCppRange (L : Loop) (name : String) (br : Bool := true) : String :=
   String.intercalate "\n" [header "std::uint64_t" name, "  (void)k;", "  std::uint64_t acc = 0;",
     if br then s!"  for (std::uint64_t x : xs) if ({L.keep.toCpp}) acc += {L.body.toCpp};"
-    else s!"  for (std::uint64_t x : xs) acc += {L.body.toCpp} & (0 - (std::uint64_t){L.keep.toCpp});",
+    else s!"  for (std::uint64_t x : xs) acc += {(C.maskC L.body.toC (.cast L.keep.toC)).print wordNm};",
     s!"  return acc * {L.scale.toCpp};", "}"]
 
 /-! ## The benchmark's word pipeline -/
@@ -349,11 +359,11 @@ modelled line for line by `Pipe.cRed` in `Iter/CLoop.lean` (`cRed_eq`). -/
 def Pipe.toCppRed (r : Red) (lanes : Nat) (q : Pipe) (name : String) : String :=
   let n := max lanes 1
   let (op, id, body) := match r with
-    | .min => ("std::min<std::uint64_t>", "~0ULL", s!"({q.f.toCpp} | (b - 1))")
-    | .max => ("std::max<std::uint64_t>", "0ULL", s!"({q.f.toCpp} & (0 - b))")
+    | .min => ("std::min<std::uint64_t>", "~0ULL", (C.minC q.f.toC (.var .b)).print wordNm)
+    | .max => ("std::max<std::uint64_t>", "0ULL", (C.maskC q.f.toC (.var .b)).print wordNm)
   String.intercalate "\n" ([header "std::optional<std::uint64_t>" name, "  (void)k;",
     s!"  std::uint64_t acc[{n}], seen = 0;", s!"  for (std::uint64_t& a : acc) a = {id};"] ++
-    laneLoop n (fun lane => s!"std::uint64_t b = (std::uint64_t){q.keep.toCpp}; seen |= b; acc[{lane}] = {op}(acc[{lane}], {body});") ++ [
+    laneLoop n (fun lane => s!"std::uint64_t b = {(C.CE.cast q.keep.toC).print wordNm}; seen |= b; acc[{lane}] = {op}(acc[{lane}], {body});") ++ [
     s!"  std::uint64_t m = {id};",
     s!"  for (std::uint64_t a : acc) m = {op}(m, a);",
     "  if (seen) return m;",
@@ -565,20 +575,29 @@ theorem fast3_correct (mode : Nat → Bool) (q : SPipe) (ps : List UInt64) (rows
 
 /-! ### printer (trusted) -/
 
-/-- `fields[i]` / `params[i]` are the C++ for field / parameter `i`; a missing one is `0`, as in `X.eval` -/
-def X.toCpp (fields params : List String) : X → String
-  | .fld i => fields.getD i "0ULL"
-  | .prm i => params.getD i "0ULL"
-  | .lit n => s!"{n}ULL"
-  | .add a b => s!"({a.toCpp fields params} + {b.toCpp fields params})"
-  | .mul a b => s!"({a.toCpp fields params} * {b.toCpp fields params})"
-  | .div a (.lit n) => if n == 0 then "0ULL" else s!"({a.toCpp fields params} / {n}ULL)"
-  | .div a b => s!"(({b.toCpp fields params}) == 0 ? 0ULL : {a.toCpp fields params} / {b.toCpp fields params})"
+open Iter.C in
+def X.toC : X → CE
+  | .fld i => .var (.fld i)
+  | .prm i => .var (.prm i)
+  | .lit n => .lit n
+  | .add a b => .bin .add a.toC b.toC
+  | .mul a b => .bin .mul a.toC b.toC
+  | .div a (.lit n) => if n = 0 then .lit 0 else .bin .div a.toC (.lit n)
+  | .div a b => .cond (.bin .eq b.toC (.lit 0)) (.lit 0) (.bin .div a.toC b.toC)
 
-def Q.toCpp (fields params : List String) : Q → String
-  | .ne0 a => s!"({a.toCpp fields params} != 0)"
-  | .ge a b => s!"({a.toCpp fields params} >= {b.toCpp fields params})"
-  | .and p q => s!"({p.toCpp fields params} & {q.toCpp fields params})"
+open Iter.C in
+def Q.toC : Q → CE
+  | .ne0 a => .bin .ne a.toC (.lit 0)
+  | .ge a b => .bin .ge a.toC b.toC
+  | .and p q => .bin .band p.toC q.toC
+
+open Iter.C in
+/-- `fields[i]` / `params[i]` are the C++ for field / parameter `i`; a missing one is `0`, as in `X.eval` -/
+def recNm (fields params : List String) : Slot → String
+  | .fld i => fields.getD i "0ULL" | .prm i => params.getD i "0ULL" | .b => "kb" | _ => "0ULL"
+
+def X.toCpp (fields params : List String) (e : X) : String := e.toC.print (recNm fields params)
+def Q.toCpp (fields params : List String) (q : Q) : String := q.toC.print (recNm fields params)
 
 /-- C++ `name(rows, p0, p1, ...)` computing `SPipe.fast2`; `fields[i]` is the C++ expression for word field
 `i` of row `e`, and the includer defines the row type with a `name` member and `Summ` with `count`, `total`,
@@ -598,10 +617,9 @@ def SPipe.toCpp (q : SPipe) (nParams : Nat) (name rowType : String) (fields : Li
     s!"  \{ const {rowType}& e = *fp; tot = {q.pay.toCpp fields ps}; }",
     "  for (++i; i < n; ++i) {",
     s!"    const {rowType}& e = es[i];",
-    s!"    bool k = {q.keep.toCpp fields ps};",
-    "    std::uint64_t m = 0 - (std::uint64_t)k;",
-    s!"    cnt += 1 & m; tot += {q.pay.toCpp fields ps} & m;",
-    "    lp = k ? &e : lp;",
+    s!"    std::uint64_t kb = {(C.CE.cast q.keep.toC).print (recNm fields ps)};",
+    s!"    cnt += kb; tot += {(C.maskC q.pay.toC (.var .b)).print (recNm fields ps)};",
+    "    lp = kb ? &e : lp;",
     "  }",
     "  s.count = cnt; s.total = tot; s.first = fp->name; s.last = lp->name;",
     "  return s;",

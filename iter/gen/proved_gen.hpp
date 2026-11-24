@@ -16,8 +16,8 @@ __attribute__((noinline)) static std::uint64_t provedU_m1(const std::vector<std:
   std::uint64_t acc[1] = {};
   std::size_t n = xs.size(), i = 0;
   for (; i + 1 <= n; i += 1)
-    for (std::size_t j = 0; j < 1; ++j) { std::uint64_t x = xs[i + j]; acc[j] += x & (0 - (std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)); }
-  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 1] += x & (0 - (std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)); }
+    for (std::size_t j = 0; j < 1; ++j) { std::uint64_t x = xs[i + j]; acc[j] += (x & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)))); }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 1] += (x & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)))); }
   std::uint64_t total = 0;
   for (std::uint64_t a : acc) total += a;
   return total * 2ULL;
@@ -40,8 +40,8 @@ __attribute__((noinline)) static std::uint64_t provedU_m2(const std::vector<std:
   std::uint64_t acc[2] = {};
   std::size_t n = xs.size(), i = 0;
   for (; i + 2 <= n; i += 2)
-    for (std::size_t j = 0; j < 2; ++j) { std::uint64_t x = xs[i + j]; acc[j] += x & (0 - (std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)); }
-  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 2] += x & (0 - (std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)); }
+    for (std::size_t j = 0; j < 2; ++j) { std::uint64_t x = xs[i + j]; acc[j] += (x & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)))); }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 2] += (x & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)))); }
   std::uint64_t total = 0;
   for (std::uint64_t a : acc) total += a;
   return total * 2ULL;
@@ -64,8 +64,8 @@ __attribute__((noinline)) static std::uint64_t provedU_m4(const std::vector<std:
   std::uint64_t acc[4] = {};
   std::size_t n = xs.size(), i = 0;
   for (; i + 4 <= n; i += 4)
-    for (std::size_t j = 0; j < 4; ++j) { std::uint64_t x = xs[i + j]; acc[j] += x & (0 - (std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)); }
-  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 4] += x & (0 - (std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)); }
+    for (std::size_t j = 0; j < 4; ++j) { std::uint64_t x = xs[i + j]; acc[j] += (x & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)))); }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 4] += (x & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)))); }
   std::uint64_t total = 0;
   for (std::uint64_t a : acc) total += a;
   return total * 2ULL;
@@ -88,8 +88,8 @@ __attribute__((noinline)) static std::uint64_t provedU_m8(const std::vector<std:
   std::uint64_t acc[8] = {};
   std::size_t n = xs.size(), i = 0;
   for (; i + 8 <= n; i += 8)
-    for (std::size_t j = 0; j < 8; ++j) { std::uint64_t x = xs[i + j]; acc[j] += x & (0 - (std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)); }
-  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 8] += x & (0 - (std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)); }
+    for (std::size_t j = 0; j < 8; ++j) { std::uint64_t x = xs[i + j]; acc[j] += (x & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)))); }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 8] += (x & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)))); }
   std::uint64_t total = 0;
   for (std::uint64_t a : acc) total += a;
   return total * 2ULL;
@@ -117,7 +117,7 @@ __attribute__((noinline)) static std::uint64_t provedU_rb(const std::vector<std:
 __attribute__((noinline)) static std::uint64_t provedU_rm(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
   (void)k;
   std::uint64_t acc = 0;
-  for (std::uint64_t x : xs) acc += x & (0 - (std::uint64_t)(((x ^ k) % 3ULL) == 0ULL));
+  for (std::uint64_t x : xs) acc += (x & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL))));
   return acc * 2ULL;
 }
 
@@ -129,8 +129,8 @@ __attribute__((noinline)) static std::uint64_t provedC_m1(const std::vector<std:
   std::uint64_t acc[1] = {};
   std::size_t n = xs.size(), i = 0;
   for (; i + 1 <= n; i += 1)
-    for (std::size_t j = 0; j < 1; ++j) { std::uint64_t x = xs[i + j]; acc[j] += 1ULL & (0 - (std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)); }
-  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 1] += 1ULL & (0 - (std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)); }
+    for (std::size_t j = 0; j < 1; ++j) { std::uint64_t x = xs[i + j]; acc[j] += (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)))); }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 1] += (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)))); }
   std::uint64_t total = 0;
   for (std::uint64_t a : acc) total += a;
   return total * 1ULL;
@@ -153,8 +153,8 @@ __attribute__((noinline)) static std::uint64_t provedC_m2(const std::vector<std:
   std::uint64_t acc[2] = {};
   std::size_t n = xs.size(), i = 0;
   for (; i + 2 <= n; i += 2)
-    for (std::size_t j = 0; j < 2; ++j) { std::uint64_t x = xs[i + j]; acc[j] += 1ULL & (0 - (std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)); }
-  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 2] += 1ULL & (0 - (std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)); }
+    for (std::size_t j = 0; j < 2; ++j) { std::uint64_t x = xs[i + j]; acc[j] += (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)))); }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 2] += (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)))); }
   std::uint64_t total = 0;
   for (std::uint64_t a : acc) total += a;
   return total * 1ULL;
@@ -177,8 +177,8 @@ __attribute__((noinline)) static std::uint64_t provedC_m4(const std::vector<std:
   std::uint64_t acc[4] = {};
   std::size_t n = xs.size(), i = 0;
   for (; i + 4 <= n; i += 4)
-    for (std::size_t j = 0; j < 4; ++j) { std::uint64_t x = xs[i + j]; acc[j] += 1ULL & (0 - (std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)); }
-  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 4] += 1ULL & (0 - (std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)); }
+    for (std::size_t j = 0; j < 4; ++j) { std::uint64_t x = xs[i + j]; acc[j] += (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)))); }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 4] += (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)))); }
   std::uint64_t total = 0;
   for (std::uint64_t a : acc) total += a;
   return total * 1ULL;
@@ -201,8 +201,8 @@ __attribute__((noinline)) static std::uint64_t provedC_m8(const std::vector<std:
   std::uint64_t acc[8] = {};
   std::size_t n = xs.size(), i = 0;
   for (; i + 8 <= n; i += 8)
-    for (std::size_t j = 0; j < 8; ++j) { std::uint64_t x = xs[i + j]; acc[j] += 1ULL & (0 - (std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)); }
-  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 8] += 1ULL & (0 - (std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)); }
+    for (std::size_t j = 0; j < 8; ++j) { std::uint64_t x = xs[i + j]; acc[j] += (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)))); }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 8] += (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)))); }
   std::uint64_t total = 0;
   for (std::uint64_t a : acc) total += a;
   return total * 1ULL;
@@ -230,7 +230,7 @@ __attribute__((noinline)) static std::uint64_t provedC_rb(const std::vector<std:
 __attribute__((noinline)) static std::uint64_t provedC_rm(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
   (void)k;
   std::uint64_t acc = 0;
-  for (std::uint64_t x : xs) acc += 1ULL & (0 - (std::uint64_t)(((x ^ k) % 3ULL) == 0ULL));
+  for (std::uint64_t x : xs) acc += (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL))));
   return acc * 1ULL;
 }
 
@@ -243,8 +243,8 @@ __attribute__((noinline)) static std::optional<std::uint64_t> provedMax(const st
   for (std::uint64_t& a : acc) a = 0ULL;
   std::size_t n = xs.size(), i = 0;
   for (; i + 4 <= n; i += 4)
-    for (std::size_t j = 0; j < 4; ++j) { std::uint64_t x = xs[i + j]; std::uint64_t b = (std::uint64_t)(((x ^ k) % 3ULL) == 0ULL); seen |= b; acc[j] = std::max<std::uint64_t>(acc[j], ((x * 2ULL) & (0 - b))); }
-  for (; i < n; ++i) { std::uint64_t x = xs[i]; std::uint64_t b = (std::uint64_t)(((x ^ k) % 3ULL) == 0ULL); seen |= b; acc[i % 4] = std::max<std::uint64_t>(acc[i % 4], ((x * 2ULL) & (0 - b))); }
+    for (std::size_t j = 0; j < 4; ++j) { std::uint64_t x = xs[i + j]; std::uint64_t b = ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)); seen |= b; acc[j] = std::max<std::uint64_t>(acc[j], ((x * 2ULL) & (0ULL - b))); }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; std::uint64_t b = ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)); seen |= b; acc[i % 4] = std::max<std::uint64_t>(acc[i % 4], ((x * 2ULL) & (0ULL - b))); }
   std::uint64_t m = 0ULL;
   for (std::uint64_t a : acc) m = std::max<std::uint64_t>(m, a);
   if (seen) return m;
@@ -254,7 +254,7 @@ __attribute__((noinline)) static std::optional<std::uint64_t> provedMax(const st
 // Iter.Gen.recPipe_gen proves this loop equal to the running summary; needs Emp and Summ from the includer.
 __attribute__((noinline)) static Summ provedA(const std::vector<Emp>& es, std::uint64_t p0, std::uint64_t p1) {
   std::size_t i = 0, n = es.size();
-  for (; i < n; ++i) { const Emp& e = es[i]; if ((((std::uint64_t)e.active != 0) & (e.salary >= p0))) break; }
+  for (; i < n; ++i) { const Emp& e = es[i]; if ((((std::uint64_t)e.active != 0ULL) & (e.salary >= p0))) break; }
   Summ s;
   if (i == n) return s;
   const Emp* fp = &es[i];
@@ -263,10 +263,9 @@ __attribute__((noinline)) static Summ provedA(const std::vector<Emp>& es, std::u
   { const Emp& e = *fp; tot = ((e.salary * p1) / 100ULL); }
   for (++i; i < n; ++i) {
     const Emp& e = es[i];
-    bool k = (((std::uint64_t)e.active != 0) & (e.salary >= p0));
-    std::uint64_t m = 0 - (std::uint64_t)k;
-    cnt += 1 & m; tot += ((e.salary * p1) / 100ULL) & m;
-    lp = k ? &e : lp;
+    std::uint64_t kb = ((std::uint64_t)(((std::uint64_t)e.active != 0ULL) & (e.salary >= p0)));
+    cnt += kb; tot += (((e.salary * p1) / 100ULL) & (0ULL - kb));
+    lp = kb ? &e : lp;
   }
   s.count = cnt; s.total = tot; s.first = fp->name; s.last = lp->name;
   return s;
@@ -275,7 +274,7 @@ __attribute__((noinline)) static Summ provedA(const std::vector<Emp>& es, std::u
 // Iter.Gen.recPipe_adapt proves this loop equal to the running summary for every masked/branchy choice.
 __attribute__((noinline, optimize("no-tree-loop-if-convert"))) static Summ adaptA(const std::vector<Emp>& es, std::uint64_t p0, std::uint64_t p1) {
   std::size_t i = 0, n = es.size();
-  for (; i < n; ++i) { const Emp& e = es[i]; if ((((std::uint64_t)e.active != 0) & (e.salary >= p0))) break; }
+  for (; i < n; ++i) { const Emp& e = es[i]; if ((((std::uint64_t)e.active != 0ULL) & (e.salary >= p0))) break; }
   Summ s;
   if (i == n) return s;
   const Emp* fp = &es[i];
@@ -290,11 +289,11 @@ __attribute__((noinline, optimize("no-tree-loop-if-convert"))) static Summ adapt
       std::size_t pe = end - i > 32 ? i + 32 : end;
       w = pe - i;
       std::uint64_t prev = lp + 1 == &es[i];
-      for (; i < pe; ++i) { const Emp& e = es[i]; std::uint64_t k = (((std::uint64_t)e.active != 0) & (e.salary >= p0)); std::uint64_t m = 0 - k; starts += k & ~prev; prev = k; cnt += 1 & m; tot += ((e.salary * p1) / 100ULL) & m; lp = k ? &e : lp; }
-      for (; i < end; ++i) { const Emp& e = es[i]; std::uint64_t k = (((std::uint64_t)e.active != 0) & (e.salary >= p0)); std::uint64_t m = 0 - k; cnt += 1 & m; tot += ((e.salary * p1) / 100ULL) & m; lp = k ? &e : lp; }
+      for (; i < pe; ++i) { const Emp& e = es[i]; std::uint64_t k = (((std::uint64_t)e.active != 0ULL) & (e.salary >= p0)); std::uint64_t m = 0 - k; starts += k & ~prev; prev = k; cnt += 1 & m; tot += ((e.salary * p1) / 100ULL) & m; lp = k ? &e : lp; }
+      for (; i < end; ++i) { const Emp& e = es[i]; std::uint64_t k = (((std::uint64_t)e.active != 0ULL) & (e.salary >= p0)); std::uint64_t m = 0 - k; cnt += 1 & m; tot += ((e.salary * p1) / 100ULL) & m; lp = k ? &e : lp; }
     } else {
       w = end - i;
-      for (; i < end; ++i) { const Emp& e = es[i]; if ((((std::uint64_t)e.active != 0) & (e.salary >= p0))) { starts += lp + 1 != &e; cnt += 1; tot += ((e.salary * p1) / 100ULL); lp = &e; } }
+      for (; i < end; ++i) { const Emp& e = es[i]; if ((((std::uint64_t)e.active != 0ULL) & (e.salary >= p0))) { starts += lp + 1 != &e; cnt += 1; tot += ((e.salary * p1) / 100ULL); lp = &e; } }
     }
     masked = starts * 16 > w;
   }

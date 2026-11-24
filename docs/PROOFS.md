@@ -174,7 +174,8 @@ Nothing else: no `take`, `enumerate` or user functions, no strings in expression
 | list program = search + any mix of masked and branchy rows (records) | proved (`fast3_correct`) |
 | list program = masked lane loop for `count`, `min?`, `max?` (words) | proved (`count_correct`, `red_correct`) |
 | the printed loops' C++ control flow (round loop, inner `j` loop, `i % n` tail, lane fold, `seen`; record search + masked pass) computes that loop | proved for sum, count, `min?`/`max?` and the masked record loop (`printed_correct`, `printed_count`, `printed_red`, `printed_summary` in `Iter/CLoop.lean`); not for the switching record loop |
-| that loop printed as C++ text | **trusted** (`SPipe.toCpp`, `SPipe.toCppAdapt`, `Loop.toCpp`, `Pipe.toCppRed`, about 120 lines), **fuzzed** |
+| each printed expression, mask and min/max identity, as a C syntax tree (`CE`) with 64-bit meaning and undefined `/`, `%` by 0 | proved: the tree means the Lean value and is never undefined (`E.toC_eval`, `P.toC_eval`, `X.toC_eval`, `Q.toC_eval`, `word_step`, `red_step`, `rec_step`) |
+| that loop printed as C++ text (tree → text is one rule per node in `CE.print`) | **trusted** (`SPipe.toCpp`, `SPipe.toCppAdapt`, `Loop.toCpp`, `Pipe.toCppRed`, about 120 lines), **fuzzed** |
 | the switch policy picks fast blocks | measured only; it cannot change results |
 | C++ text → machine code | **trusted**: GCC |
 | count as `Nat` (Lean) vs `uint64_t` (C++) | agree below 2^64 rows |
@@ -183,8 +184,10 @@ Nothing else: no `take`, `enumerate` or user functions, no strings in expression
 
 `Loop.cRun` models the printed word loop one C++ loop per Lean function (`rounds`, `inner`, `tail`, a `bump`
 for `acc[l] += v`), so the printer's lane assignment (item `t` to lane `t % n` via two loops) is proved, not
-just fuzzed. Still trusted there: that each printed line means its Lean function, `E.toCpp`/`P.toCpp` per
-constructor, and GCC. `Pipe.cRed` and `SPipe.cRun` do the same for the `min?`/`max?` and masked record printers;
+just fuzzed. Still trusted there: that each printed line means its Lean function, the one-rule-per-node text
+printer `CE.print`, and GCC. The expressions themselves are no longer printed straight to text: `E.toC`,
+`P.toC`, `X.toC` and `Q.toC` build a `CE` tree, whose `CE.eval` returns `none` for `/` or `%` by 0 (undefined
+in C++), and the `*.toC_eval` theorems prove every generated tree evaluates to `some` of the Lean value. `Pipe.cRed` and `SPipe.cRun` do the same for the `min?`/`max?` and masked record printers;
 the switching record printer (`SPipe.toCppAdapt`) has no such model yet.
 
 Printer details that matter: Lean defines `x / 0 = 0` and `x % 0 = x`, C++ leaves both undefined, so `/` and

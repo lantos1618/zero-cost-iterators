@@ -304,4 +304,98 @@ theorem printed_range_count (lanes : Nat) (q : Pipe) (k : UInt64) (xs : Array UI
     (opt lanes q.countPipe).cRunR k xs = (q.count k xs).toUInt64 :=
   (cRunR_eq _ k xs).trans ((cRun_eq _ k xs).symm.trans (printed_count lanes q k xs))
 
+
+/-! ### printed expressions: each tree the printer emits means the proved value, and is never undefined -/
+
+theorem u64_mod_zero (a : UInt64) : a % 0 = a := by
+  cases a with | mk v => exact congrArg UInt64.mk BitVec.umod_zero
+
+theorem u64_div_zero (a : UInt64) : a / 0 = 0 := by
+  cases a with | mk v => exact congrArg UInt64.mk (BitVec.udiv_zero (x := v))
+
+theorem band01 (a b : Bool) :
+    ((if a = true then (1 : UInt64) else 0) &&& if b = true then 1 else 0) = if (a && b) = true then 1 else 0 := by
+  cases a <;> cases b <;> rfl
+
+section exprs
+open Iter.C
+variable (env : Slot → UInt64)
+
+theorem E.toC_eval (k x : UInt64) (hx : env .x = x) (hk : env .k = k) :
+    ∀ e : E, e.toC.eval env = some (e.eval k x)
+  | .x => by simp [E.toC, CE.eval, E.eval, hx]
+  | .k => by simp [E.toC, CE.eval, E.eval, hk]
+  | .lit n => by simp [E.toC, CE.eval, E.eval]
+  | .add a b => by simp [E.toC, CE.eval, E.eval, Op.eval, E.toC_eval k x hx hk a, E.toC_eval k x hx hk b]
+  | .mul a b => by simp [E.toC, CE.eval, E.eval, Op.eval, E.toC_eval k x hx hk a, E.toC_eval k x hx hk b]
+  | .xor a b => by simp [E.toC, CE.eval, E.eval, Op.eval, E.toC_eval k x hx hk a, E.toC_eval k x hx hk b]
+  | .mod a (.lit n) => by
+    by_cases h : n = 0
+    · subst h; simp [E.toC, E.eval, E.toC_eval k x hx hk a, u64_mod_zero]
+    · simp [E.toC, CE.eval, E.eval, Op.eval, h, E.toC_eval k x hx hk a]
+  | .mod a b => by
+    have hb := E.toC_eval k x hx hk b
+    have ha := E.toC_eval k x hx hk a
+    by_cases h : b.eval k x = 0 <;> cases b <;>
+      simp_all [E.toC, CE.eval, E.eval, Op.eval, u64_mod_zero]
+
+theorem P.toC_eval (k x : UInt64) (hx : env .x = x) (hk : env .k = k) :
+    ∀ p : P, p.toC.eval env = some (if p.eval k x then 1 else 0)
+  | .eq a b => by
+    simp [P.toC, CE.eval, P.eval, Op.eval, E.toC_eval env k x hx hk a, E.toC_eval env k x hx hk b]
+  | .lt a b => by
+    simp [P.toC, CE.eval, P.eval, Op.eval, E.toC_eval env k x hx hk a, E.toC_eval env k x hx hk b]
+  | .and p q => by
+    simp only [P.toC, CE.eval, P.eval, Op.eval, P.toC_eval k x hx hk p, P.toC_eval k x hx hk q]
+    rw [band01]
+
+theorem X.toC_eval (ps r : List UInt64) (hf : ∀ i, env (.fld i) = r.getD i 0)
+    (hp : ∀ i, env (.prm i) = ps.getD i 0) : ∀ e : X, e.toC.eval env = some (e.eval ps r)
+  | .fld i => by simp [X.toC, CE.eval, X.eval, hf]
+  | .prm i => by simp [X.toC, CE.eval, X.eval, hp]
+  | .lit n => by simp [X.toC, CE.eval, X.eval]
+  | .add a b => by simp [X.toC, CE.eval, X.eval, Op.eval, X.toC_eval ps r hf hp a, X.toC_eval ps r hf hp b]
+  | .mul a b => by simp [X.toC, CE.eval, X.eval, Op.eval, X.toC_eval ps r hf hp a, X.toC_eval ps r hf hp b]
+  | .div a (.lit n) => by
+    by_cases h : n = 0
+    · subst h; simp [X.toC, CE.eval, X.eval, u64_div_zero]
+    · simp [X.toC, CE.eval, X.eval, Op.eval, h, X.toC_eval ps r hf hp a]
+  | .div a b => by
+    have hb := X.toC_eval ps r hf hp b
+    have ha := X.toC_eval ps r hf hp a
+    by_cases h : b.eval ps r = 0 <;> cases b <;>
+      simp_all [X.toC, CE.eval, X.eval, Op.eval, u64_div_zero]
+
+theorem Q.toC_eval (ps r : List UInt64) (hf : ∀ i, env (.fld i) = r.getD i 0)
+    (hp : ∀ i, env (.prm i) = ps.getD i 0) : ∀ q : Q, q.toC.eval env = some (if q.eval ps r then 1 else 0)
+  | .ne0 a => by
+    simp [Q.toC, CE.eval, Q.eval, Op.eval, X.toC_eval env ps r hf hp a]
+  | .ge a b => by
+    simp [Q.toC, CE.eval, Q.eval, Op.eval, X.toC_eval env ps r hf hp a, X.toC_eval env ps r hf hp b]
+  | .and p q => by
+    simp only [Q.toC, CE.eval, Q.eval, Op.eval, Q.toC_eval ps r hf hp p, Q.toC_eval ps r hf hp q]
+    rw [band01]
+
+/-- the printed word step `acc[l] += body & (0 - (uint64_t)keep)` adds `sel keep body` -/
+theorem word_step (L : Loop) (k x : UInt64) (hx : env .x = x) (hk : env .k = k) :
+    (maskC L.body.toC (.cast L.keep.toC)).eval env = some (sel (L.keep.eval k x) (L.body.eval k x)) := by
+  simp [maskC, CE.eval, Op.eval, E.toC_eval env k x hx hk, P.toC_eval env k x hx hk, sel]
+
+/-- the printed reduction steps, with `b = (uint64_t)keep` -/
+theorem red_step (r : Red) (q : Pipe) (k x : UInt64) (hx : env .x = x) (hk : env .k = k)
+    (hb : env .b = if q.keep.eval k x then 1 else 0) :
+    (match r with | .min => minC q.f.toC (.var .b) | .max => maskC q.f.toC (.var .b)).eval env =
+      some (r.mask (q.keep.eval k x) (q.f.eval k x)) := by
+  cases r <;> simp [minC, maskC, CE.eval, Op.eval, E.toC_eval env k x hx hk, hb, Red.mask, selMin, sel]
+
+/-- the printed record step: `kb = (uint64_t)keep` and `tot += pay & (0 - kb)` add `sel keep pay` -/
+theorem rec_step (q : SPipe) (ps r : List UInt64) (hf : ∀ i, env (.fld i) = r.getD i 0)
+    (hp : ∀ i, env (.prm i) = ps.getD i 0) (hb : env .b = if q.keep.eval ps r then 1 else 0) :
+    (CE.cast q.keep.toC).eval env = some (if q.keep.eval ps r then 1 else 0) ∧
+    (maskC q.pay.toC (.var .b)).eval env = some (sel (q.keep.eval ps r) (q.pay.eval ps r)) := by
+  refine ⟨by simp [CE.eval, Q.toC_eval env ps r hf hp], ?_⟩
+  simp [maskC, CE.eval, Op.eval, X.toC_eval env ps r hf hp, hb, sel]
+
+end exprs
+
 end Iter.Gen

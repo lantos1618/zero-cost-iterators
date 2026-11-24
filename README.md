@@ -46,7 +46,8 @@ def declare (names : Array String) : Except String (List String) := do
 | record summary = search + any mix of masked and branchy rows, for every switch policy | `fast3_correct` | proved |
 | the printed C++ loop structure (lanes, rounds, tail, `seen`, search) computes those loops | `printed_correct`, `printed_count`, `printed_red`, `printed_summary` | proved for all but the switching loop |
 | the branchy and range-for word printers compute the same loops (so the tuner only changes speed) | `printed_range`, `printed_range_count` (same model as `cRun` for the branchy step) | proved |
-| each printed C++ line means its Lean step; expression printers; switching printer | 43,200-result fuzz under UBSan, 3 planted bugs caught | trusted, fuzzed |
+| every printed expression (`E`, `P`, `X`, `Q`, masks, min/max identities) is a C syntax tree whose meaning is the Lean value and is never undefined (`/` and `%` by 0 are guarded) | `E.toC_eval`, `P.toC_eval`, `X.toC_eval`, `Q.toC_eval`, `word_step`, `red_step`, `rec_step` (`Iter/CExpr.lean`) | **new:** proved |
+| tree → text (one fixed rule per node, `CE.print`); each printed loop line means its Lean step; switching printer | 43,200-result fuzz under UBSan, 3 planted bugs caught | trusted, fuzzed |
 | C++ → machine code | — | trusted (GCC) |
 | speed; which candidate the tuner picks | — | measured only, below |
 
@@ -161,8 +162,10 @@ the switching loop `adaptA`. §From a later run, round 1. Unbolded rows are ties
 - **Proved vs trusted:** the loops are proved equal to the `Iter` chains (`opt_correct`, `fast2_correct`,
   `fast3_correct`, `count_correct`, `red_correct`). The loop structure the printers emit (lane rounds, inner loop, tail, lane fold, `seen`; the
   record search and masked pass) is modelled loop by loop in `iter/Iter/CLoop.lean` and proved equal too
-  (`printed_correct`, `printed_count`, `printed_red`, `printed_summary`). Still trusted: that each printed line
-  means its Lean step, the expression printers, the switching record printer, and GCC.
+  (`printed_correct`, `printed_count`, `printed_red`, `printed_summary`). Every printed expression is built as a C syntax tree
+  (`iter/Iter/CExpr.lean`) whose meaning is proved equal to the Lean value, with no undefined `/` or `%`
+  (`E.toC_eval`, `P.toC_eval`, `X.toC_eval`, `Q.toC_eval`). Still trusted: the tree-to-text rule per node,
+  that each printed loop line means its Lean step, the switching record printer, and GCC.
   The printers are fuzzed: 43,200 results from random loops (each word pipeline as masked, branchy and range-for sum and count, `min?` and
   `max?`), record ones with random block size, window and switch threshold, compiled with
   UBSan, must match Lean exactly. Planted bugs in the masked and branchy bodies and in the `min` mask must be caught, and inverting
