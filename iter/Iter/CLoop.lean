@@ -465,6 +465,153 @@ theorem printed_adapt (blk win den : Nat) : q.cAdapt ps rows blk win den = q.run
   (cAdapt_eq q ps rows blk win den).trans (printed_summary q ps rows)
 end
 
+/-! ## The block search, as printed
+
+`findToCpp` prints `enumerate → find? (keep ·.2)` over a word array as a block loop: for each full block of
+`B` items an `any |= keep` pass, and if that hit, a scan of the block that returns at the first match; then a
+scan of the tail. `cScan` models one scan loop, `cOr` the `any` pass, `cFind` the outer loop. -/
+
+section
+variable (p : UInt64 → Bool) (xs : Array UInt64)
+
+/-- `for (; i < e && i < n; ++i) if (keep) return {i, x};` -/
+def cScan (i e : Nat) : Option (Nat × UInt64) :=
+  if h : i < e ∧ i < xs.size then (if p xs[i] then some (i, xs[i]) else cScan (i + 1) e) else none
+termination_by e - i
+
+/-- `for (; i < e && i < n; ++i) any |= keep;` -/
+def cOr (i e : Nat) (acc : Bool) : Bool :=
+  if h : i < e ∧ i < xs.size then cOr (i + 1) e (acc || p xs[i]) else acc
+termination_by e - i
+
+/-- blocks of `B` items while a full block remains, then the tail scan -/
+def cFind (B : Nat) (i : Nat) : Option (Nat × UInt64) :=
+  if h : i + max B 1 ≤ xs.size then
+    (if cOr p xs i (i + max B 1) false then cScan p xs i (i + max B 1) else cFind B (i + max B 1))
+  else cScan p xs i xs.size
+termination_by xs.size - i
+decreasing_by omega
+
+variable {p xs} in
+theorem cScan_pos {i e : Nat} (h : i < e ∧ i < xs.size) :
+    cScan p xs i e = if p xs[i] then some (i, xs[i]) else cScan p xs (i + 1) e := by
+  conv => lhs; unfold cScan
+  rw [dif_pos h]
+
+variable {p xs} in
+theorem cScan_neg {i e : Nat} (h : ¬(i < e ∧ i < xs.size)) : cScan p xs i e = none := by
+  conv => lhs; unfold cScan
+  rw [dif_neg h]
+
+theorem cOr_eq : ∀ (i e : Nat) (acc : Bool), cOr p xs i e acc = (acc || (cScan p xs i e).isSome) := by
+  intro i e acc
+  induction i, e, acc using cOr.induct p xs with
+  | case1 i e acc h ih =>
+    have : cOr p xs i e acc = cOr p xs (i + 1) e (acc || p xs[i]) := by
+      conv => lhs; unfold cOr
+      rw [dif_pos h]
+    rw [this, ih, cScan_pos h]
+    cases hp : p xs[i] <;> simp
+  | case2 i e acc h =>
+    have : cOr p xs i e acc = acc := by
+      conv => lhs; unfold cOr
+      rw [dif_neg h]
+    rw [this, cScan_neg h]; simp
+
+/-- a scan to `n` is the scan to `e`, else the scan from `e` -/
+theorem cScan_split (n : Nat) : ∀ (i e : Nat), i ≤ e → e ≤ n →
+    cScan p xs i n = (cScan p xs i e).or (cScan p xs e n) := by
+  intro i e
+  induction i, e using cScan.induct p xs with
+  | case1 i e h hp =>
+    intro _ _
+    rw [cScan_pos (e := n) ⟨by omega, h.2⟩, cScan_pos h, if_pos hp, if_pos hp]; rfl
+  | case2 i e h hp ih =>
+    intro _ hen
+    rw [cScan_pos (e := n) ⟨by omega, h.2⟩, cScan_pos h, if_neg hp, if_neg hp]
+    exact ih (by omega) hen
+  | case3 i e h =>
+    intro hie _
+    rw [cScan_neg h]
+    show cScan p xs i n = cScan p xs e n
+    by_cases he : i = e
+    · rw [he]
+    · rw [cScan_neg (by omega), cScan_neg (by omega)]
+
+theorem cFind_eq (B : Nat) : ∀ i, cFind p xs B i = cScan p xs i xs.size := by
+  intro i
+  induction i using cFind.induct p xs B with
+  | case1 i h hor =>
+    have : cFind p xs B i = cScan p xs i (i + max B 1) := by
+      conv => lhs; unfold cFind
+      rw [dif_pos h, if_pos hor]
+    rw [this, cScan_split p xs xs.size i (i + max B 1) (by omega) h]
+    rw [cOr_eq] at hor
+    simp at hor
+    obtain ⟨v, hv⟩ := Option.isSome_iff_exists.1 hor
+    rw [hv]; rfl
+  | case2 i h hor ih =>
+    have : cFind p xs B i = cFind p xs B (i + max B 1) := by
+      conv => lhs; unfold cFind
+      rw [dif_pos h, if_neg hor]
+    rw [this, ih, cScan_split p xs xs.size i (i + max B 1) (by omega) h]
+    rw [cOr_eq] at hor
+    simp at hor
+    rw [hor]; rfl
+  | case3 i h =>
+    conv => lhs; unfold cFind
+    rw [dif_neg h]
+
+theorem cScan_spec : ∀ i e, e = xs.size →
+    cScan p xs i e = (List.enumFrom i (xs.toList.drop i)).find? (p ·.2) := by
+  intro i e
+  induction i, e using cScan.induct p xs with
+  | case1 i e h hp =>
+    intro _
+    rw [cScan_pos h, if_pos hp, List.drop_eq_getElem_cons (show i < xs.toList.length by simpa using h.2), List.enumFrom_cons,
+      List.find?_cons]
+    simp [hp]
+  | case2 i e h hp ih =>
+    intro he
+    rw [cScan_pos h, if_neg hp, ih he, List.drop_eq_getElem_cons (show i < xs.toList.length by simpa using h.2), List.enumFrom_cons,
+      List.find?_cons]
+    simp [hp]
+  | case3 i e h =>
+    intro he
+    rw [cScan_neg h, List.drop_eq_nil_of_le (by simp; omega)]; rfl
+
+/-- the printed block search computes the `enumerate → find?` chain, for every block size -/
+theorem printed_find (B : Nat) : cFind p xs B 0 = xs.iter.enumerate.find? (p ·.2) := by
+  rw [cFind_eq, cScan_spec p xs 0 _ rfl, (denotes_array xs).enumerate.find?]; rfl
+
+end
+
+/-- C++ `name(xs, k)` returning the first `(index, x)` with `keep`, as `cFind` (`B = 0`: the plain scan) -/
+def findToCpp (keep : P) (B : Nat) (name : String) : String :=
+  let kc := keep.toCpp
+  let hit := "std::optional<std::pair<std::size_t, std::uint64_t>>"
+  let scan := fun (e : String) => s!"for (; i < {e}; ++i) \{ std::uint64_t x = xs[i]; if ({kc}) return std::pair<std::size_t, std::uint64_t>\{i, x}; }"
+  String.intercalate "\n" ([
+    s!"__attribute__((noinline)) static {hit} {name}(const std::vector<std::uint64_t>& xs, std::uint64_t k) \{",
+    "  std::size_t n = xs.size(), i = 0;"] ++
+    (if B = 0 then [] else [
+    s!"  while (n - i >= {max B 1}) \{",
+    s!"    std::size_t e = i + {max B 1}; std::uint64_t any = 0;",
+    s!"    for (std::size_t j = i; j < e; ++j) \{ std::uint64_t x = xs[j]; any |= {(C.CE.cast keep.toC).print wordNm}; }",
+    s!"    if (any) \{ {scan "e"} }",
+    "    i = e;",
+    "  }"]) ++ [
+    s!"  {scan "n"}",
+    "  return std::nullopt;",
+    "}"])
+
+/-- the benchmark's search: the first item greater than `k` -/
+def findPipe : P := .lt .k .x
+
+theorem findPipe_gen (B : Nat) (k : UInt64) (xs : Array UInt64) :
+    cFind (findPipe.eval k) xs B 0 = xs.iter.enumerate.find? (findPipe.eval k ·.2) :=
+  printed_find _ xs B
+
 section exprs
 open Iter.C
 variable (env : Slot → UInt64)

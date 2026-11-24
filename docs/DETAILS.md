@@ -155,9 +155,9 @@ results. The C++ is built with `-fsanitize=undefined` and its output must equal 
 (branchy body drops the count) and `fuzz_mutant3` (`min` mask inverted) plant printer bugs and require the comparison to fail; `fuzz_policy` inverts
 the switch condition and requires it to pass.
 
-`bench.cpp`'s `provedU`, `provedC`, `provedMax`, `provedA` and `adaptA` come from that header (`count_correct`
-and `red_correct` cover the word `count` and `min?`/`max?` loops); `provedF` is a hand transcription of the block
-search, compared with the hand loop on several inputs (`results_equal`), not proved.
+`bench.cpp`'s `provedU`, `provedC`, `provedMax`, `provedF`, `provedA` and `adaptA` come from that header (`count_correct`
+and `red_correct` cover the word `count` and `min?`/`max?` loops; `printed_find` and `findPipe_gen` cover the
+block search `provedF`, for every block size).
 
 **CLI (`iter/TaskCore.lean`).** `logPipe_spec`, `salesPipe_spec`, `salesPipe_keys` and `manifestPipe_spec`
 are one-line compositions of the lemmas above. `entryBad_trace`: tracing doesn't change the answer.

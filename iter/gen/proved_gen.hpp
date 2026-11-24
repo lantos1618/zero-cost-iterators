@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <utility>
 #include <vector>
 
 // Candidate loops, all proved equal (opt_correct / printed_correct hold for every lane count, and the branchy
@@ -605,3 +606,25 @@ __attribute__((noinline, optimize("no-tree-loop-if-convert"))) static Summ adapt
 
 struct Q6Cand { const char* tag; Summ (*f)(const std::vector<Line>&, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t); };
 static const Q6Cand provedQ6_cands[] = {{"masked", &provedQ6}, {"adapt", &adaptQ6}};
+
+// Iter.Gen.findPipe_gen proves both loops equal to enumerate -> find? (x > k), for every block size.
+__attribute__((noinline)) static std::optional<std::pair<std::size_t, std::uint64_t>> provedF_plain(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  std::size_t n = xs.size(), i = 0;
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; if ((k < x)) return std::pair<std::size_t, std::uint64_t>{i, x}; }
+  return std::nullopt;
+}
+
+__attribute__((noinline)) static std::optional<std::pair<std::size_t, std::uint64_t>> provedF_blocks(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  std::size_t n = xs.size(), i = 0;
+  while (n - i >= 32) {
+    std::size_t e = i + 32; std::uint64_t any = 0;
+    for (std::size_t j = i; j < e; ++j) { std::uint64_t x = xs[j]; any |= ((std::uint64_t)(k < x)); }
+    if (any) { for (; i < e; ++i) { std::uint64_t x = xs[i]; if ((k < x)) return std::pair<std::size_t, std::uint64_t>{i, x}; } }
+    i = e;
+  }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; if ((k < x)) return std::pair<std::size_t, std::uint64_t>{i, x}; }
+  return std::nullopt;
+}
+
+struct FindCand { const char* tag; std::optional<std::pair<std::size_t, std::uint64_t>> (*f)(const std::vector<std::uint64_t>&, std::uint64_t); };
+static const FindCand provedF_cands[] = {{"plain", &provedF_plain}, {"blocks", &provedF_blocks}};

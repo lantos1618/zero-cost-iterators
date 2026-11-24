@@ -67,10 +67,13 @@ pipeline's correctness proof is one line.
 | record summary = search + any mix of masked and branchy rows, for every switch policy | `fast3_correct` | proved |
 | TPC-H Query 6 (five range tests, revenue = Σ price × discount) as a record pipeline; both generated loops equal it | `q6_gen`, `q6_adapt`, `q6_total` | proved |
 | the printed C++ loop structure (lanes, rounds, tail, `seen`, search) computes those loops | `printed_correct`, `printed_count`, `printed_red`, `printed_summary`, `printed_adapt` | proved, including the switching loop for every block size, window and threshold |
+| `enumerate → find?` = block search (an `any` pass per block, then a scan of the block that hit), for every block size | `printed_find`, `findPipe_gen` | proved |
 | the branchy and range-for word printers compute the same loops (so the tuner only changes speed) | `printed_range`, `printed_range_count` (same model as `cRun` for the branchy step) | proved |
 | every printed expression (`E`, `P`, `X`, `Q`, masks, min/max identities) is a C syntax tree whose meaning is the Lean value and is never undefined (`/` and `%` by 0 are guarded) | `E.toC_eval`, `P.toC_eval`, `X.toC_eval`, `Q.toC_eval`, `word_step`, `red_step`, `rec_step` (`Iter/CExpr.lean`) | proved |
 | tree → text (one fixed rule per node, `CE.print`); each printed loop line means its Lean step | 43,200-result fuzz under UBSan, 3 planted bugs caught | trusted, fuzzed |
 | C++ → machine code | — | trusted (GCC) |
+| zero cost in Lean's own compiled code | — | measured: holds for `filter → map → fold`; `enumerate`, `drop`, `dropWhile`, `zip` still allocate there (a Lean compiler matter, not our C++) |
+| hand-written AVX2 and branch-free baselines | — | comparison code, result-checked only |
 | speed; which candidate the tuner picks | — | measured only, below |
 
 **Speed** (ns per item, 1M items, median of 11 batches pinned to one core, GCC 11.4 on one VM; `-O2` /
@@ -169,7 +172,7 @@ each rewrite. Earlier runs in this README disagreed with each other, so the scor
   `max?`), record ones with random block size, window and switch threshold, compiled with
   UBSan, must match Lean exactly. Planted bugs in the masked and branchy bodies and in the `min` mask must be caught, and inverting
   the switch policy must change nothing. The block
-  search is still copied by hand and only result-checked.
+  search is generated too, and `printed_find` proves it for every block size.
 - **How the proofs work, and the measurements behind each claim:** [docs/PROOFS.md](docs/PROOFS.md).
 
 ## A real workload: TPC-H Query 6
@@ -221,11 +224,14 @@ Each claim has a cheap test that would break it.
 | zero cost in the model | write a wasteful lowering that the cost theorems accept | the 3 planted ones (extra list, double test, no early exit) are rejected |
 | zero cost in compiled Lean | time a chain against its hand loop | **already broken** for `enumerate`, `drop`, `dropWhile`, `zip`: Lean boxes the counter (1.2–7× slower); holds for `filter → map → fold` |
 | the printed C++ computes what Lean proved | plant a printer bug and see if anything notices | 43,200 fuzz results under UBSan; all 3 planted bugs caught |
-| generated C++ is no more than 5% slower than the fastest hand loop: plain `if`, branch-free, and hand-written AVX2 where the build allows it | `sh iter/falsify.sh`: g++ 11 and 12, clang 15, `-O2` and `-O3 -march=native`, and GCC profile-guided builds | **broken in 11 and 13 of 70 rows** in two runs (below); no wrong results |
+| generated C++ is no more than 5% slower than the fastest hand loop: plain `if`, branch-free, and hand-written AVX2 where the build allows it | `sh iter/falsify.sh`: g++ 11 and 12, clang 15, `-O2` and `-O3 -march=native`, and GCC profile-guided builds | **broken in 11–14 of 70 rows** over three runs (below); no wrong results |
 
-`falsify.sh` rows that broke in both runs (ns per item; "best hand" is the fastest hand loop, "AVX2" is in
+`falsify.sh` rows that broke in every run (ns per item; "best hand" is the fastest hand loop, "AVX2" is in
 `iter/common.hpp`). A few other rows (count, max, Query 6 at GCC 12 `-O2`) broke by 5–11% in one run and not
-the other, which is this VM's noise:
+the other, which is this VM's noise. In the latest run the search with no match broke at GCC 11 and clang 15 `-O2`
+(1.3–1.7× slower) even though GCC 11 emits the same instructions for it as for the hand loop. With
+`-falign-functions=64 -falign-loops=64` the gap closes (0.34 vs 0.34 and 0.31 vs 0.30), so it is code
+placement, not the generated loop:
 
 | build | pipeline | best hand | ours | ours / best hand |
 |---|---|---:|---:|---:|
@@ -293,6 +299,18 @@ Worth it as a small verified library, a precise answer to "is fusion free, and w
 for laws → proved zero-cost abstraction → C++. The algebra is well known (see above). What is less common is
 a loop that switches strategy on the data with a proof that every switch is correct, so the choice can be
 tuned for speed alone. Not worth it as a way to make Lean code fast.
+
+## Status (v1.0)
+
+Finished as a worked recipe. Every C++ loop the benchmarks call "ours" is printed from Lean, and its loop
+structure and expressions are proved equal to the `Iter` chain (`printed_*`, `*.toC_eval`). What stays
+trusted is the fixed text rule per tree node, that each printed loop line means its Lean step (both fuzzed),
+and the C++ compiler. Out of scope, left as open problems:
+
+- a formal C semantics for the printed lines, which would leave only the compiler trusted;
+- zero cost in Lean's own compiled code for `enumerate`, `drop`, `dropWhile` and `zip` (needs compiler work);
+- user-defined functions and strings in the pipeline language;
+- proofs for the hand-written AVX2 baselines, and an ISPC comparison.
 
 ## Try it
 

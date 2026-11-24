@@ -173,14 +173,14 @@ Nothing else: no `take`, `enumerate` or user functions, no strings in expression
 | list program = search + masked loop (records), masked multi-lane loop (words) | proved (`fast2_correct`, `opt_correct`) |
 | list program = search + any mix of masked and branchy rows (records) | proved (`fast3_correct`) |
 | list program = masked lane loop for `count`, `min?`, `max?` (words) | proved (`count_correct`, `red_correct`) |
-| the printed loops' C++ control flow (round loop, inner `j` loop, `i % n` tail, lane fold, `seen`; record search + masked pass) computes that loop | proved for sum, count, `min?`/`max?` and the masked record loop (`printed_correct`, `printed_count`, `printed_red`, `printed_summary` in `Iter/CLoop.lean`); not for the switching record loop |
+| the printed loops' C++ control flow (round loop, inner `j` loop, `i % n` tail, lane fold, `seen`; record search + masked pass) computes that loop | proved for every generated loop: sum, count, `min?`/`max?`, range-for, the masked and switching record loops and the block search (`printed_correct`, `printed_count`, `printed_red`, `printed_summary`, `printed_adapt`, `printed_range`, `printed_find` in `Iter/CLoop.lean`) |
 | each printed expression, mask and min/max identity, as a C syntax tree (`CE`) with 64-bit meaning and undefined `/`, `%` by 0 | proved: the tree means the Lean value and is never undefined (`E.toC_eval`, `P.toC_eval`, `X.toC_eval`, `Q.toC_eval`, `word_step`, `red_step`, `rec_step`) |
 | that loop printed as C++ text (tree → text is one rule per node in `CE.print`) | **trusted** (`SPipe.toCpp`, `SPipe.toCppAdapt`, `Loop.toCpp`, `Pipe.toCppRed`, about 120 lines), **fuzzed** |
 | the switch policy picks fast blocks | measured only; it cannot change results |
 | C++ text → machine code | **trusted**: GCC |
 | count as `Nat` (Lean) vs `uint64_t` (C++) | agree below 2^64 rows |
 | 0 lanes | Lean allows it; the printer emits 1 lane, same sum; covered by the fuzz |
-| block search (`provedF`) | proved in Lean, C++ copied by hand, results checked |
+| block search (`provedF`) | proved: `findToCpp` prints it, `cFind` models it, `printed_find` proves it equals `enumerate → find?` for every block size |
 
 `Loop.cRun` models the printed word loop one C++ loop per Lean function (`rounds`, `inner`, `tail`, a `bump`
 for `acc[l] += v`), so the printer's lane assignment (item `t` to lane `t % n` via two loops) is proved, not

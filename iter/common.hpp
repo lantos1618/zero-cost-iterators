@@ -208,30 +208,9 @@ NOINLINE Summ simdQ6(const std::vector<Line>& ls, u64 d0, u64 d1, u64 lo, u64 hi
 }
 #endif
 
-// Proved rewrites. provedU, provedC, provedMax, provedA and adaptA are generated from Lean (gen/proved_gen.hpp, proved by
-// Iter.Gen.wordPipe_gen and Iter.Gen.recPipe_gen; the printer is trusted). provedF below is written by hand
-// from Iter.Rewrite.chain_find_blocks and checked only by the results_equal test.
+// Proved rewrites. provedU, provedC, provedMax, provedF, provedA, adaptA and the Q6 loops are generated from Lean
+// (gen/proved_gen.hpp, proved by Iter.Gen.wordPipe_gen, recPipe_gen, findPipe_gen, q6_gen, ...; the printer is trusted).
 #include "gen/proved_gen.hpp"
-
-NOINLINE Hit findBlocks(const std::vector<u64>& xs, u64 t) {
-  // blocks of 32 (find_blocks): a branch-free "any match?" per block, then a search inside the one block that has it
-  constexpr std::size_t B = 32;
-  std::size_t n = xs.size(), i = 0;
-  for (; i + B <= n; i += B) {
-    u64 any = 0;
-    for (std::size_t j = 0; j < B; ++j) any |= (u64)(xs[i + j] > t);
-    if (any) for (std::size_t j = 0; j < B; ++j) if (xs[i + j] > t) return std::pair{i + j, xs[i + j]};
-  }
-  for (; i < n; ++i) if (xs[i] > t) return std::pair{i, xs[i]};
-  return std::nullopt;
-}
-
-NOINLINE Hit findPlain(const std::vector<u64>& xs, u64 t) {
-  for (std::size_t i = 0; i < xs.size(); ++i) if (xs[i] > t) return std::pair{i, xs[i]};
-  return std::nullopt;
-}
-struct FindCand { const char* tag; Hit (*f)(const std::vector<u64>&, u64); };
-static const FindCand provedF_cands[] = {{"plain", &findPlain}, {"blocks", &findBlocks}};
 
 // the loops "ours" runs: picked by tune() below from candidates that all compute the same result
 static u64 (*provedU)(const std::vector<u64>&, u64);
@@ -284,7 +263,7 @@ static void bench(const char* label, std::size_t n, int reps, F f) {
 }
 
 // times every candidate on a separate sample (median of 9) and returns the fastest; this changes speed only,
-// because every candidate is proved (or, for provedF, checked below) to give the same result
+// because every candidate is proved to give the same result
 template <class C, std::size_t N, class R>
 static decltype(C::f) tune(const char* what, const C (&cs)[N], R run) {
   std::size_t best = 0;
