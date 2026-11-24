@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Full replay of the `Iter` library and the `tasks` CLI, Devin VM / any machine with elan.
 # Build, axiom audit, theorem list, no-sorry scan, 300 generated inputs per task, 34 fixture
-# commands, and the emitted-C allocation check. BENCH=1 also runs the benchmark (not gated).
+# commands, and the emitted-C allocation check. BENCH=1 also runs the Lean and C++ benchmarks (not gated).
 # Raw outputs + exit codes -> results/*.txt. Exit 0 iff no row is unexpected.
 set -u
 cd "$(dirname "$0")"
@@ -18,6 +18,8 @@ run no_sorry . 1 grep -rnwE "sorry|admit|native_decide|axiom" iter --include=*.l
 run taskcheck . 0 iter/.lake/build/bin/taskcheck
 run fixtures . 0 tasks/replay.sh
 run check_c iter 0 python3 check_c.py
-[ "${BENCH:-0}" = 1 ] && { run bench iter 0 .lake/build/bin/bench; grep BENCH "$R/bench.txt"; }
+[ "${BENCH:-0}" = 1 ] && { run bench iter 0 .lake/build/bin/bench
+  run bench_cpp iter 0 sh -c 'g++ -O2 -std=c++20 -o .lake/build/bench_cpp bench.cpp && .lake/build/bench_cpp'
+  grep -h BENCH "$R/bench.txt" "$R/bench_cpp.txt"; }
 echo "TOTAL=$TOTAL UNEXPECTED=$UNEXPECTED"
 [ $UNEXPECTED = 0 ]

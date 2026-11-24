@@ -139,8 +139,11 @@ excluded) and fails if any uses an axiom beyond `propext`, `Classical.choice` an
 
 ## Benchmark
 
-`iter/Bench.lean`, run by `BENCH=1 ./replay.sh`: 1,000,000 items, each timing the median of 5 batches of 20
-calls, after a warm-up call; two rounds, the second reported in the README. One VM, not repeated across
+`iter/Bench.lean` and `iter/bench.cpp`, both run by `BENCH=1 ./replay.sh`: the same generated data, 1,000,000
+items, each timing the median of 5 batches of 20 calls after a warm-up call; two rounds, the second reported in
+the README. Each call varies one argument so the compiler cannot hoist it out of the timing loop. C++ is built
+with `g++ -O2 -std=c++20` (GCC 11.4: `std::views::filter`/`transform`/`iota`, no C++23 `enumerate`), and
+`enumerate` is written as `iota | transform`. Checksums agree across all 16 variants. One VM, not repeated across
 machines; round-to-round noise on this VM was up to 2× on single rows.
 
 ## Rerunning every check
