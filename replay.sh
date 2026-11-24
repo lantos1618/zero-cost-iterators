@@ -22,7 +22,7 @@ run gen_fresh iter 0 sh -c '.lake/build/bin/gencpp | cmp - gen/proved_gen.hpp &&
 FZ='B=.lake/build; $B/bin/fuzzcpp cpp 300 > $B/fuzz.cpp && $B/bin/fuzzcpp expect 300 > $B/fuzz_expect.txt'
 UB='g++ -std=c++20 -O1 -w -fsanitize=undefined -fno-sanitize-recover=all'
 run fuzz_cpp iter 0 sh -c "$FZ && $UB -o \$B/fuzz \$B/fuzz.cpp && \$B/fuzz | cmp - \$B/fuzz_expect.txt && echo fuzz: \$(wc -l < \$B/fuzz_expect.txt) printed-C++ results equal Lean"
-run fuzz_mutant iter 1 sh -c "$FZ && sed 's/lp = kb ? \&e : lp;/lp = \&e;/' \$B/fuzz.cpp > \$B/fuzz_mut.cpp && { $UB -o \$B/fuzz_mut \$B/fuzz_mut.cpp || exit 3; } && \$B/fuzz_mut | cmp -s - \$B/fuzz_expect.txt; r=\$?; echo fuzz: last-row mutant caught=\$r; exit \$r"
+run fuzz_mutant iter 1 sh -c "$FZ && sed 's/lp = kb ? \&e : lp;/lp = \&e;/' \$B/fuzz.cpp > \$B/fuzz_mut.cpp && ! cmp -s \$B/fuzz.cpp \$B/fuzz_mut.cpp && { $UB -o \$B/fuzz_mut \$B/fuzz_mut.cpp || exit 3; } && \$B/fuzz_mut | cmp -s - \$B/fuzz_expect.txt; r=\$?; echo fuzz: last-row mutant caught=\$r; exit \$r"
 run fuzz_mutant2 iter 1 sh -c "$FZ && sed 's/{ starts += lp + 1 != &e; cnt += 1;/{ starts += lp + 1 != \&e;/' \$B/fuzz.cpp > \$B/fuzz_mut2.cpp && { $UB -o \$B/fuzz_mut2 \$B/fuzz_mut2.cpp || exit 3; } && \$B/fuzz_mut2 | cmp -s - \$B/fuzz_expect.txt; r=\$?; echo fuzz: branchy-count mutant caught=\$r; exit \$r"
 run fuzz_mutant3 iter 1 sh -c "$FZ && sed 's/ | (b - 1ULL))/ | (0ULL - b))/' \$B/fuzz.cpp > \$B/fuzz_mut3.cpp && grep -q '| (0ULL - b))' \$B/fuzz_mut3.cpp && { $UB -o \$B/fuzz_mut3 \$B/fuzz_mut3.cpp || exit 3; } && \$B/fuzz_mut3 | cmp -s - \$B/fuzz_expect.txt; r=\$?; echo fuzz: min-mask mutant caught=\$r; exit \$r"
 run fuzz_policy iter 0 sh -c "$FZ && sed 's/masked = starts \* \([0-9]*\) > w;/masked = !(starts * \\1 > w);/' \$B/fuzz.cpp > \$B/fuzz_pol.cpp && grep -q 'masked = !(' \$B/fuzz_pol.cpp && $UB -o \$B/fuzz_pol \$B/fuzz_pol.cpp && \$B/fuzz_pol | cmp - \$B/fuzz_expect.txt && echo fuzz: inverted switch policy gives the same results"
@@ -30,7 +30,8 @@ export PIN=; command -v taskset >/dev/null && PIN='taskset -c 2'
 [ "${BENCH:-0}" = 1 ] && { run bench iter 0 .lake/build/bin/bench
   run bench_cpp iter 0 sh -c 'g++ -O2 -std=c++20 -o .lake/build/bench_cpp bench.cpp && $PIN .lake/build/bench_cpp'
   run bench_cpp_native iter 0 sh -c 'g++ -O3 -march=native -std=c++20 -o .lake/build/bench_cpp_native bench.cpp && $PIN .lake/build/bench_cpp_native'
+  run falsify iter 0 sh falsify.sh
   run ablate_cpp iter 0 sh -c 'g++ -O2 -std=c++20 -o .lake/build/ablate_cpp ablate.cpp && $PIN .lake/build/ablate_cpp'
-  grep -h BENCH "$R/bench.txt" "$R/bench_cpp.txt" "$R/bench_cpp_native.txt" "$R/ablate_cpp.txt"; }
+  grep -h BENCH "$R/bench.txt" "$R/bench_cpp.txt" "$R/bench_cpp_native.txt" "$R/ablate_cpp.txt"; grep -h FALSIFY "$R/falsify.txt"; }
 echo "TOTAL=$TOTAL UNEXPECTED=$UNEXPECTED"
 [ $UNEXPECTED = 0 ]

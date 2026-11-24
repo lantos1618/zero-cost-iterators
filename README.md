@@ -32,6 +32,26 @@ def declare (names : Array String) : Except String (List String) := do
   return table
 ```
 
+## What this is for
+
+A recipe others can copy: state the laws an abstraction must obey, prove that the abstraction equals the
+plain program and costs nothing extra in a cost model, then print C++ from the proved form. `Iter` is the
+worked example and C++ is the target. Speed is measured to check the method, not as the goal.
+
+1. **Laws.** Give the abstraction a meaning: `Iter.Denotes it l` says iterator `it` behaves as list `l` for
+   every lawful monad (state, exceptions, early exit). Each adapter gets one lemma (`Denotes.filter`, ...).
+2. **Zero cost, as a theorem.** `iter/Iter/Cost.lean` counts reads, callback calls and intermediate
+   allocations, proves a fused chain does no more than the hand loop, and rejects three wasteful versions.
+3. **Proved rewrites.** Masks, split accumulators and block switching are lemmas over the list program
+   (`opt_correct`, `fast3_correct`), so every rewrite keeps the result.
+4. **Print C++ from the proof.** The generator builds C expression trees with a proved meaning and prints them
+   with one rule per node; the trusted part is that printer and the compiler, and both are fuzzed.
+5. **Try to break it.** Planted bugs must be caught, and `iter/falsify.sh` races the output against
+   hand-written C++ under several compilers (below).
+
+To reuse it, write your adapter, prove its `Denotes` lemma and its cost lemma, and the rest composes: each new
+pipeline's correctness proof is one line.
+
 ## Scorecard
 
 **What is proved** (Lean, standard axioms only; `replay.sh` lists and audits every theorem)
@@ -127,44 +147,9 @@ proves each loop equal to the `Iter` chain; `iter/Iter/Rewrite.lean` holds the r
   of 256 rows from how often the keep test flipped, so it can follow the data;
 - `find_blocks`: a search can test a block of 32 for "any match" without branching.
 
-ns per item, 1,000,000 items, median of 11 batches (batch min–max in [docs/PROOFS.md](docs/PROOFS.md)):
+Measured speeds are in the scorecard above; `docs/PROOFS.md` has the batch spreads and the ablations behind
+each rewrite. Earlier runs in this README disagreed with each other, so the scorecard is now the only table.
 
-| pipeline | data | `-O2`: hand | views | **ours** | `-O3 -march=native`: hand | views | **ours** |
-|---|---|---|---|---|---|---|---|
-| filter → map → sum, words | random | 1.30* | 3.21 | **0.68** | 0.80 | 3.46 | **0.60** |
-| filter → map → summary, records‡ | random | 3.75 | 4.00 | **1.33** | 3.34 | 4.13 | **1.28** |
-| filter → map → summary, records‡ | sorted | 1.51 | 1.14 | 1.15 | 2.87 | 1.08 | 1.06 |
-| filter → map → summary, records‡ | runs† | 1.49 | 1.13 | 1.12 | 2.87 | 1.08 | 1.05 |
-| filter → map → summary, records‡ | mixed† | 2.71 | 2.67 | **1.25** | 2.91 | 2.66 | **1.18** |
-| filter → count, words§ | random | **0.38** | 3.30 | 0.59 | **0.38** | 3.15 | 0.49 |
-| filter → map → max?, words§ | random | 3.29 | 3.18 | **0.90** | 3.32 | 3.07 | **0.77** |
-| enumerate → find, no match | random | 0.48 | **0.31** | 0.55 | 0.32 | 0.33 | **0.25** |
-
-"hand" is a plain C++ `for` loop with `if`, "views" is `std::views::filter | transform`, both g++ 11.4, on
-one VM pinned to one core, second of two rounds. Every variant returns the same results. *This batch was
-noisy (min 1.09); round 1 gave 0.78. †"runs": runs of 256 rows, all kept or all dropped, spread through the
-array; "mixed": 65,536-row stretches that alternate between random rows and runs. ‡Records rows are from a
-later run, round 1 (in round 2 the VM slowed every `-O2` loop by 10–20%; the order did not change); "ours" is
-the switching loop `adaptA`. §From a later run, round 1. Unbolded rows are ties within the noise.
-
-- **Records, random order:** ours is 2.6–2.8× faster than the hand loop and 3.0–3.2× faster than `std::views`.
-  The ablation shows the gain is the branch-free mask (the hand loop's `if` is taken for ~60% of rows in random
-  order).
-- **Records, sorted and runs:** a tie with `std::views` (1.12–1.15 vs 1.13–1.14 at `-O2`). When the keep test
-  is predictable the switching loop runs the branchy body, which is the `std::views` loop. The masked-only loop
-  (`provedA`, still generated) loses here: 1.32 vs 1.13 on runs.
-- **Records, mixed:** ours is 2.1–2.3× faster than both. No fixed loop wins here: the masked loop is right for
-  the random stretches and the branchy one for the runs; the masked-only loop reads 1.34 and 1.29.
-- **What the switch costs:** within noise on random rows (1.33 vs 1.32 for masked-only). Prototypes that
-  counted flips on every row cost 5–15%; counting over the first 32 rows of a masked block, and only on kept
-  rows in a branchy block, is what made it free. At `-O3` GCC turned the branchy block back into selects
-  (1.93 ns on runs); the printed `optimize("no-tree-loop-if-convert")` attribute stops that (1.22).
-- **Words, `max?`:** 3.6–4.0× faster than both. The hand loop's `if (keep) { y = x * 2; if (y > m) m = y; }`
-  branches on a coin flip; ours masks dropped items to 0 and folds 4 `max` lanes (`red_correct`).
-- **Words, `count`:** a loss, 1.3–1.6×. GCC already compiles `if (keep) ++c` branch-free, so the mask and
-  8 lanes only add work; 1, 2 and 4 lanes measured 0.47–0.72 against 0.40–0.42. The loop is still generated
-  and proved, but the hand loop is the one to use.
-- **Words, sum:** 1.1–1.3× over the hand loop. **Search:** a loss at `-O2`, a win at `-O3`.
 - **"Faster than hand-written C++"** means faster than one plain hand loop. A person can write our loop by
   hand; the difference is that ours is generated and proved.
 - **What the languages can express:** word pipelines `filter → map → sum`, `filter → count` and
@@ -184,6 +169,52 @@ the switching loop `adaptA`. §From a later run, round 1. Unbolded rows are ties
   the switch policy must change nothing. The block
   search is still copied by hand and only result-checked.
 - **How the proofs work, and the measurements behind each claim:** [docs/PROOFS.md](docs/PROOFS.md).
+
+## How to prove this wrong
+
+Each claim has a cheap test that would break it.
+
+| claim | cheapest way to break it | result |
+|---|---|---|
+| a chain equals its list program | find a chain and input where they differ: a counterexample would make the Lean proof impossible | `lake build` checks every proof; `replay.sh` audits the 348 theorems for `sorry` and non-standard axioms |
+| zero cost in the model | write a wasteful lowering that the cost theorems accept | the 3 planted ones (extra list, double test, no early exit) are rejected |
+| zero cost in compiled Lean | time a chain against its hand loop | **already broken** for `enumerate`, `drop`, `dropWhile`, `zip`: Lean boxes the counter (1.2–7× slower); holds for `filter → map → fold` |
+| the printed C++ computes what Lean proved | plant a printer bug and see if anything notices | 43,200 fuzz results under UBSan; all 3 planted bugs caught |
+| generated C++ is no more than 5% slower than the faster of a plain and a branch-free hand loop | `sh iter/falsify.sh`: g++ 11 and 12, clang 15, `-O2` and `-O3 -march=native`, and GCC profile-guided builds | **broken in 5 of 56 rows, in both of two runs** (below) |
+
+`falsify.sh` rows that broke in both runs (ns per row; "best hand" is the faster hand loop):
+
+| build | pipeline | best hand | ours | ours / best hand |
+|---|---|---:|---:|---:|
+| GCC 11, profile-guided | records, random | 1.40 | 3.97–4.01 | 2.8× slower |
+| GCC 11, profile-guided | records, mixed | 1.35–1.40 | 2.52–2.61 | 1.9× slower |
+| GCC 12 `-O2` | max | 0.73–0.74 | 0.84–0.85 | 1.15× slower |
+| GCC 12 `-O2` | find, no match | 0.31 | 0.34 | 1.10× slower |
+| clang 15 `-O3 -march=native` | records, random | 1.33 | 1.48–1.49 | 1.12× slower |
+
+- **Cause of the profile-guided loss:** the profile shows the keep test is taken about 60% of the time, and
+  GCC then turns our `lp = kb ? &e : lp` select back into a branch, which mispredicts (checked in the
+  assembly).
+- **The fix that didn't stick:** a pointer mask in its place fixes the profile-guided build (4.0 → 1.5 ns) but
+  costs 15% in normal builds (1.34 → 1.60). It is not applied.
+- **What the table shows:** ours beats a *plain* hand loop in most rows, but a programmer who writes the mask
+  by hand (`bfA`, `bfMax` in `iter/common.hpp`) gets about the same speed. The proofs make the rewrite safe;
+  they do not make it faster than a good hand loop.
+
+## Who already tried this
+
+| idea | prior work |
+|---|---|
+| fused iterator chains | Haskell stream fusion (Coutts, Leshchinskiy, Stewart, ICFP 2007); Rust iterators; C++20 ranges |
+| fused streams generated as C with no overhead | strymonas, "Stream Fusion, to Completeness" (Kiselyov et al., POPL 2017) |
+| proved generators that print C with a small trusted printer | Fiat-Crypto (Erbsen et al., IEEE S&P 2019); whole proved compilers: CompCert, CakeML |
+| branch-free selection | Ross, "Selection conditions in main memory" (TODS 2004) |
+| switching between branchy and branch-free code at run time | Vectorwise micro-adaptivity (Răducanu, Boncz, Zukowski, SIGMOD 2013) |
+| schedules that change speed but not results; picking the fastest of equal plans by timing | Halide (Ragan-Kelley et al., PLDI 2013), Exo (Ikarashi et al., PLDI 2022), FFTW's planner |
+
+What is left for this repo: a Lean proof that one law (`Denotes`) covers every adapter under effects and early
+exit, zero cost stated as a theorem in a cost model, and a switching loop whose every switching policy is
+proved correct. Each part on its own exists elsewhere.
 
 ## Was this worth doing?
 
@@ -208,11 +239,10 @@ Partly. Honest accounting:
 - **Cost of getting here.** Most of the earlier work (INT8 kernels, Bend, APL, ten milestone reports) did not
   move this goal forward. It is now on the `archive` branch.
 
-Worth it as a small verified library, a precise answer to "is fusion free, and when?", and a source of
-proved loops printed as C++: on the record summary 2.6–3.2× faster than a hand loop and `std::views` in random
-order, 2.1–2.3× faster than both on mixed data, and tied with `std::views` on sorted data and runs; 1.1–1.3×
-faster on the word sum. The algebra is well known. What is less common is a loop that switches strategy on the
-data with a proof that every switch is correct, so the choice can be tuned for speed alone. Not worth it as a way to make Lean code fast.
+Worth it as a small verified library, a precise answer to "is fusion free, and when?", and a worked recipe
+for laws → proved zero-cost abstraction → C++. The algebra is well known (see above). What is less common is
+a loop that switches strategy on the data with a proof that every switch is correct, so the choice can be
+tuned for speed alone. Not worth it as a way to make Lean code fast.
 
 ## Try it
 
@@ -237,6 +267,7 @@ the first bad line in a file manifest.
 | `iter/Iter/CLoop.lean` | the printed loops' C++ control flow modelled and proved equal to the proved loops; the printed expression trees proved equal to the Lean values |
 | `iter/FuzzCpp.lean` | differential fuzz of the C++ printers against Lean |
 | `iter/bench.cpp`, `iter/ablate.cpp` | C++ benchmark (hand, `std::views`, staged, ours) and the record-summary ablation |
+| `iter/common.hpp`, `iter/falsify.cpp`, `iter/falsify.sh` | shared C++ workloads, plain and branch-free hand loops, timer and tuner; the multi-compiler "prove us wrong" race |
 | `iter/` | the `tasks` CLI, its generated-input checker, the axiom audit, `check_c.py`, and the Lean and C++ benchmarks (`Bench.lean`, `bench.cpp`) |
 | `tasks/` | CLI fixtures, expected outputs and `replay.sh` |
 | `docs/DETAILS.md` | theorem list, cost model, CLI formats and exit codes, limits |

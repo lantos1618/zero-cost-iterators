@@ -2,38 +2,13 @@
 // a hand loop, a lazy std::views chain (fused, like Iter), an eager std::vector per stage (staged), and a
 // "proved" loop that applies rewrites proved in iter/Iter/Rewrite.lean.
 // Build: g++ -O2 -std=c++20 bench.cpp -o bench_cpp
-#include <algorithm>
-#include <chrono>
-#include <cstdint>
-#include <cstdio>
-#include <cstdlib>
-#include <numeric>
-#include <optional>
 #include <ranges>
-#include <string_view>
-#include <utility>
-#include <vector>
 
-#define NOINLINE __attribute__((noinline))
-using u64 = std::uint64_t;
+#include "common.hpp"
+
 namespace v = std::views;
 
-struct Emp { std::string_view name; u64 salary; bool active; };
-struct Summ { u64 count = 0, total = 0; std::string_view first, last; };
-using Hit = std::optional<std::pair<std::size_t, u64>>;
-
-static Summ summStep(Summ s, std::string_view name, u64 pay) {
-  if (s.count == 0) s.first = name;
-  s.count += 1; s.total += pay; s.last = name;
-  return s;
-}
-
 // filter -> map -> fold over words
-NOINLINE u64 handU(const std::vector<u64>& xs, u64 k) {
-  u64 acc = 0;
-  for (u64 x : xs) if ((x ^ k) % 3 == 0) acc += x * 2;
-  return acc;
-}
 NOINLINE u64 viewsU(const std::vector<u64>& xs, u64 k) {
   u64 acc = 0;
   for (u64 y : xs | v::filter([k](u64 x) { return (x ^ k) % 3 == 0; }) | v::transform([](u64 x) { return x * 2; }))
@@ -49,18 +24,8 @@ NOINLINE u64 eagerU(const std::vector<u64>& xs, u64 k) {
 }
 
 // filter -> count and filter -> map -> max over words
-NOINLINE u64 handC(const std::vector<u64>& xs, u64 k) {
-  u64 c = 0;
-  for (u64 x : xs) if ((x ^ k) % 3 == 0) ++c;
-  return c;
-}
 NOINLINE u64 viewsC(const std::vector<u64>& xs, u64 k) {
   return (u64)std::ranges::distance(xs | v::filter([k](u64 x) { return (x ^ k) % 3 == 0; }));
-}
-NOINLINE std::optional<u64> handMax(const std::vector<u64>& xs, u64 k) {
-  std::optional<u64> m;
-  for (u64 x : xs) if ((x ^ k) % 3 == 0) { u64 y = x * 2; if (!m || y > *m) m = y; }
-  return m;
 }
 NOINLINE std::optional<u64> viewsMax(const std::vector<u64>& xs, u64 k) {
   auto r = xs | v::filter([k](u64 x) { return (x ^ k) % 3 == 0; }) | v::transform([](u64 x) { return x * 2; });
@@ -69,11 +34,6 @@ NOINLINE std::optional<u64> viewsMax(const std::vector<u64>& xs, u64 k) {
 }
 
 // records: filter -> map to a pair -> fold into a summary
-NOINLINE Summ handA(const std::vector<Emp>& es, u64 minSal, u64 pct) {
-  Summ s;
-  for (const Emp& e : es) if (e.active && e.salary >= minSal) s = summStep(s, e.name, e.salary * pct / 100);
-  return s;
-}
 NOINLINE Summ viewsA(const std::vector<Emp>& es, u64 minSal, u64 pct) {
   Summ s;
   for (auto [name, pay] : es | v::filter([minSal](const Emp& e) { return e.active && e.salary >= minSal; })
@@ -92,10 +52,6 @@ NOINLINE Summ eagerA(const std::vector<Emp>& es, u64 minSal, u64 pct) {
 }
 
 // enumerate -> find (early exit)
-NOINLINE Hit handF(const std::vector<u64>& xs, u64 t) {
-  for (std::size_t i = 0; i < xs.size(); ++i) if (xs[i] > t) return std::pair{i, xs[i]};
-  return std::nullopt;
-}
 NOINLINE Hit viewsF(const std::vector<u64>& xs, u64 t) {
   auto numbered = v::iota(std::size_t{0}, xs.size()) | v::transform([&xs](std::size_t i) { return std::pair{i, xs[i]}; });
   auto it = std::ranges::find_if(numbered, [t](auto p) { return p.second > t; });
@@ -108,121 +64,13 @@ NOINLINE Hit eagerF(const std::vector<u64>& xs, u64 t) {
   return it == numbered.end() ? Hit{} : Hit{*it};
 }
 
-
-// Proved rewrites. provedU, provedC, provedMax, provedA and adaptA are generated from Lean (gen/proved_gen.hpp, proved by
-// Iter.Gen.wordPipe_gen and Iter.Gen.recPipe_gen; the printer is trusted). provedF below is written by hand
-// from Iter.Rewrite.chain_find_blocks and checked only by the results_equal test.
-#include "gen/proved_gen.hpp"
-
-NOINLINE Hit findBlocks(const std::vector<u64>& xs, u64 t) {
-  // blocks of 32 (find_blocks): a branch-free "any match?" per block, then a search inside the one block that has it
-  constexpr std::size_t B = 32;
-  std::size_t n = xs.size(), i = 0;
-  for (; i + B <= n; i += B) {
-    u64 any = 0;
-    for (std::size_t j = 0; j < B; ++j) any |= (u64)(xs[i + j] > t);
-    if (any) for (std::size_t j = 0; j < B; ++j) if (xs[i + j] > t) return std::pair{i + j, xs[i + j]};
-  }
-  for (; i < n; ++i) if (xs[i] > t) return std::pair{i, xs[i]};
-  return std::nullopt;
-}
-
-NOINLINE Hit findPlain(const std::vector<u64>& xs, u64 t) {
-  for (std::size_t i = 0; i < xs.size(); ++i) if (xs[i] > t) return std::pair{i, xs[i]};
-  return std::nullopt;
-}
-struct FindCand { const char* tag; Hit (*f)(const std::vector<u64>&, u64); };
-static const FindCand provedF_cands[] = {{"plain", &findPlain}, {"blocks", &findBlocks}};
-
-// the loops "ours" runs: picked by tune() below from candidates that all compute the same result
-static u64 (*provedU)(const std::vector<u64>&, u64);
-static u64 (*provedC)(const std::vector<u64>&, u64);
-static Hit (*provedF)(const std::vector<u64>&, u64);
-
-// same rows, inactive first, then by salary: the hand loop's branch becomes predictable
-static std::vector<Emp> sortedRows(std::vector<Emp> es) {
-  std::sort(es.begin(), es.end(), [](const Emp& a, const Emp& b) { return a.active != b.active ? a.active < b.active : a.salary < b.salary; });
-  return es;
-}
-
-// same names, rows in runs of 256 that are all kept (60%) or all dropped (inactive), spread through the array:
-// the hand and views loops' branch is predictable, but the dropped rows are not all at the front
-static std::vector<Emp> runRows(std::vector<Emp> es, const std::vector<u64>& xs) {
-  for (std::size_t i = 0; i < es.size(); ++i) {
-    bool keep = (xs[(i / 256) * 256] >> 7) % 5 < 3;
-    es[i].active = keep;
-    es[i].salary = keep ? 50001 + xs[i] % 149999 : xs[i] % 200000;
-  }
-  return es;
-}
-
-// alternating 65,536-row stretches of random rows and of runs: the best loop changes inside one input
-static std::vector<Emp> mixedRows(const std::vector<Emp>& rnd, const std::vector<Emp>& runs) {
-  std::vector<Emp> es = rnd;
-  for (std::size_t i = 0; i < es.size(); ++i) if ((i >> 16) & 1) es[i] = runs[i];
-  return es;
-}
-
-template <class F>
-static void bench(const char* label, std::size_t n, int reps, F f) {
-  volatile u64 warm = f(0); (void)warm;
-  std::vector<long long> ts;
-  u64 chk = 0;
-  for (int b = 0; b < 11; ++b) {
-    auto t0 = std::chrono::steady_clock::now();
-    u64 acc = 0;
-    for (int r = 0; r < reps; ++r) acc += f(r);
-    auto t1 = std::chrono::steady_clock::now();
-    ts.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
-    chk = acc;
-  }
-  std::sort(ts.begin(), ts.end());
-  auto per = [&](long long t) { return t * 100 / (long long)(n * reps); };
-  std::printf("BENCH %s median_ns_per_item_x100=%lld min=%lld max=%lld checksum=%llu\n", label, per(ts[5]),
-              per(ts.front()), per(ts.back()), (unsigned long long)chk);
-}
-
-// times every candidate on a separate sample (median of 9) and returns the fastest; this changes speed only,
-// because every candidate is proved (or, for provedF, checked below) to give the same result
-template <class C, std::size_t N, class R>
-static decltype(C::f) tune(const char* what, const C (&cs)[N], R run) {
-  std::size_t best = 0;
-  long long bt = -1;
-  volatile u64 sink = 0;
-  for (std::size_t c = 0; c < N; ++c) {
-    std::vector<long long> ts;
-    for (int b = 0; b < 9; ++b) {
-      auto t0 = std::chrono::steady_clock::now();
-      sink = sink + run(cs[c].f);
-      ts.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count());
-    }
-    std::sort(ts.begin(), ts.end());
-    if (bt < 0 || ts[4] < bt) { bt = ts[4]; best = c; }
-  }
-  std::printf("TUNE %s=%s\n", what, cs[best].tag);
-  return cs[best].f;
-}
-
 int main(int argc, char** argv) {
   std::size_t n = argc > 1 ? std::strtoull(argv[1], nullptr, 10) : 1000000;
-  std::vector<u64> xs;
-  xs.reserve(n);
-  u64 s = 42;
-  for (std::size_t i = 0; i < n; ++i) { s = s * 6364136223846793005ULL + 1442695040888963407ULL; xs.push_back(s >> 40); }
-  static const std::string_view names[] = {"ana", "bo", "cy", "di", "ed", "flo", "gus", "hal"};
-  std::vector<Emp> es(n);
-  for (std::size_t i = 0; i < n; ++i) es[i] = {names[i % 8], xs[i] % 200000, xs[i] % 5 != 0};
-  std::vector<Emp> sorted = sortedRows(es);
-  std::vector<Emp> runs = runRows(es, xs);
-  std::vector<Emp> mixed = mixedRows(es, runs);
-  u64 big = *std::max_element(xs.begin(), xs.end());
-  std::vector<u64> tx(n);  // tuning sample: same size and generator, different seed, not the timed data
-  for (u64 t = 7; u64& x : tx) { t = t * 6364136223846793005ULL + 1442695040888963407ULL; x = t >> 40; }
-  u64 tbig = *std::max_element(tx.begin(), tx.end());
-  auto words = [&](auto f) { u64 a = 0; for (u64 r = 0; r < 4; ++r) a += f(tx, r); return a; };
-  provedU = tune("provedU", provedU_cands, words);
-  provedC = tune("provedC", provedC_cands, words);
-  provedF = tune("provedF", provedF_cands, [&](auto f) { u64 a = 0; for (u64 r = 0; r < 4; ++r) a += f(tx, tbig + 1 + r) ? 1 : 0; return a; });
+  Data d = makeData(n);
+  const auto& xs = d.xs;
+  const auto &es = d.es, &sorted = d.sorted, &runs = d.runs, &mixed = d.mixed;
+  const u64 big = d.big;
+  tuneAll(d);
 
   auto same = [](Summ a, Summ b) { return a.count == b.count && a.total == b.total && a.first == b.first && a.last == b.last; };
   bool ok = handU(xs, 1) == viewsU(xs, 1) && handU(xs, 1) == eagerU(xs, 1) &&
