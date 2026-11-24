@@ -143,7 +143,8 @@ def laneLoop (n : Nat) (step : String → String) : List String := [
 def header (ret name : String) : String :=
   s!"__attribute__((noinline)) static {ret} {name}(const std::vector<std::uint64_t>& xs, std::uint64_t k) \{"
 
-/-- one C++ function `name(xs, k)`; 0 lanes is printed as 1 (same sum, and no zero-length array or
+/-- one C++ function `name(xs, k)`; its loops are modelled line for line by `Loop.cRun` in `Iter/CLoop.lean`
+(`cRun_eq`). 0 lanes is printed as 1 (same sum, and no zero-length array or
 zero-step loop) -/
 def Loop.toCpp (L : Loop) (name : String) : String :=
   let n := max L.lanes 1

@@ -173,12 +173,18 @@ Nothing else: no `take`, `enumerate` or user functions, no strings in expression
 | list program = search + masked loop (records), masked multi-lane loop (words) | proved (`fast2_correct`, `opt_correct`) |
 | list program = search + any mix of masked and branchy rows (records) | proved (`fast3_correct`) |
 | list program = masked lane loop for `count`, `min?`, `max?` (words) | proved (`count_correct`, `red_correct`) |
+| the word lane loop's C++ control flow (round loop, inner `j` loop, `i % n` tail, lane array sum) computes that loop | proved (`cRun_eq`, `printed_correct`, `printed_count` in `Iter/CLoop.lean`) |
 | that loop printed as C++ text | **trusted** (`SPipe.toCpp`, `SPipe.toCppAdapt`, `Loop.toCpp`, `Pipe.toCppRed`, about 120 lines), **fuzzed** |
 | the switch policy picks fast blocks | measured only; it cannot change results |
 | C++ text → machine code | **trusted**: GCC |
 | count as `Nat` (Lean) vs `uint64_t` (C++) | agree below 2^64 rows |
 | 0 lanes | Lean allows it; the printer emits 1 lane, same sum; covered by the fuzz |
 | block search (`provedF`) | proved in Lean, C++ copied by hand, results checked |
+
+`Loop.cRun` models the printed word loop one C++ loop per Lean function (`rounds`, `inner`, `tail`, a `bump`
+for `acc[l] += v`), so the printer's lane assignment (item `t` to lane `t % n` via two loops) is proved, not
+just fuzzed. Still trusted there: that each printed line means its Lean function, `E.toCpp`/`P.toCpp` per
+constructor, and GCC. The `min?`/`max?` and record printers have no such model yet.
 
 Printer details that matter: Lean defines `x / 0 = 0` and `x % 0 = x`, C++ leaves both undefined, so `/` and
 `%` are guarded unless the divisor is a nonzero literal. A missing field or parameter prints as `0ULL`, as

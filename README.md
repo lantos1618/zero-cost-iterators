@@ -118,7 +118,8 @@ the switching loop `adaptA`. §From a later run, round 1. Unbolded rows are ties
   with `+ * ^ %`, `== <` and `&`; record pipelines `filter → map → summary` over word fields and parameters,
   with `+ * /`, `!= 0 >=` and `&`. No other adapters, no strings, no user functions.
 - **Proved vs trusted:** the loops are proved equal to the `Iter` chains (`opt_correct`, `fast2_correct`,
-  `fast3_correct`, `count_correct`, `red_correct`). The C++ printers (about 120 lines) and GCC are trusted.
+  `fast3_correct`, `count_correct`, `red_correct`). The C++ printers (about 120 lines) and GCC are trusted; for the word sum and count loop, the printed
+  control flow (rounds, inner loop, tail, lane sum) is also modelled and proved (`printed_correct`, `printed_count`).
   The printers are fuzzed: 21,600 results from 1,800 random loops (each word pipeline as sum, count, `min?` and
   `max?`), record ones with random block size, window and switch threshold, compiled with
   UBSan, must match Lean exactly. Planted bugs in the masked and branchy bodies and in the `min` mask must be caught, and inverting
@@ -174,6 +175,7 @@ the first bad line in a file manifest.
 |---|---|
 | `iter/Iter/` | the library: `Basic` (iterators and their proofs), `More` (more adapters, `zip`, terminals), `Group` (`groupFold`), `Cost` (cost model), `Rewrite` (proved loop rewrites) |
 | `iter/Iter/Gen.lean`, `iter/GenCpp.lean`, `iter/gen/` | proved word and record loop generators, their C++ printers, and the generated header |
+| `iter/Iter/CLoop.lean` | the printed word loop's C++ control flow modelled and proved equal to the proved loop |
 | `iter/FuzzCpp.lean` | differential fuzz of the C++ printers against Lean |
 | `iter/bench.cpp`, `iter/ablate.cpp` | C++ benchmark (hand, `std::views`, staged, ours) and the record-summary ablation |
 | `iter/` | the `tasks` CLI, its generated-input checker, the axiom audit, `check_c.py`, and the Lean and C++ benchmarks (`Bench.lean`, `bench.cpp`) |
