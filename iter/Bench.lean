@@ -31,6 +31,20 @@ termination_by xs.size - i
 
 @[noinline] def handU (xs : Array UInt64) (k : UInt64) : UInt64 := handUgo xs k 0 0
 
+/-- drop → dropWhile → filter → count: the counter and flag adapters -/
+@[noinline] def iterD (xs : Array UInt64) (k : UInt64) : Nat :=
+  (xs.iter.drop 1 |>.dropWhile (fun x => x % 7 != k % 7) |>.filter (fun x => (x ^^^ k) % 3 == 0)).count
+
+def handDgo (xs : Array UInt64) (k : UInt64) (i : Nat) (dropping : Bool) (n : Nat) : Nat :=
+  if h : i < xs.size then
+    let x := xs[i]
+    if dropping && x % 7 != k % 7 then handDgo xs k (i + 1) true n
+    else handDgo xs k (i + 1) false (if (x ^^^ k) % 3 == 0 then n + 1 else n)
+  else n
+termination_by xs.size - i
+
+@[noinline] def handD (xs : Array UInt64) (k : UInt64) : Nat := handDgo xs k 1 true 0
+
 /-- the same chain run eagerly on lists (one new list per stage) -/
 @[noinline] def stagedU (xs : Array UInt64) (k : UInt64) : UInt64 :=
   ((xs.toList.filter (fun x => (x ^^^ k) % 3 == 0)).map (· * 2)).foldl (· + ·) 0
@@ -99,7 +113,8 @@ def main (args : List String) : IO UInt32 := do
   let a := iterA es 50000 90; let b := handA es 50000 90
   let ok2 := a.count == b.count && a.total == b.total && a.first == b.first && a.last == b.last
   let ok3 := iterF xs big == handF xs big && iterF xs (big + 1) == handF xs (big + 1)
-  IO.println s!"BENCH items={n} results_equal={ok1 && ok2 && ok3}"
+  let ok4 := iterD xs 0 == handD xs 0 && iterD xs 5 == handD xs 5
+  IO.println s!"BENCH items={n} results_equal={ok1 && ok2 && ok3 && ok4}"
   let reps := 20
   for round in [1:3] do
     IO.println s!"BENCH round={round}"
@@ -110,4 +125,6 @@ def main (args : List String) : IO UInt32 := do
     bench "iterA" n reps (fun r => iterA es (50000 + r % 2) 90) (fun r => r.total.toUInt64)
     bench "handF_miss" n reps (fun r => handF xs (big + 1 + r.toUInt64)) (fun r => (r.map (·.2)).getD 0)
     bench "iterF_miss" n reps (fun r => iterF xs (big + 1 + r.toUInt64)) (fun r => (r.map (·.2)).getD 0)
-  return if ok1 && ok2 && ok3 then 0 else 1
+    bench "handD" n reps (fun r => handD xs r.toUInt64) (·.toUInt64)
+    bench "iterD" n reps (fun r => iterD xs r.toUInt64) (·.toUInt64)
+  return if ok1 && ok2 && ok3 && ok4 then 0 else 1

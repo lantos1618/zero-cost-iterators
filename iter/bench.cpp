@@ -113,6 +113,17 @@ static std::vector<Emp> sortedRows(std::vector<Emp> es) {
   return es;
 }
 
+// same names, rows in runs of 256 that are all kept (60%) or all dropped (inactive), spread through the array:
+// the hand and views loops' branch is predictable, but the dropped rows are not all at the front
+static std::vector<Emp> runRows(std::vector<Emp> es, const std::vector<u64>& xs) {
+  for (std::size_t i = 0; i < es.size(); ++i) {
+    bool keep = (xs[(i / 256) * 256] >> 7) % 5 < 3;
+    es[i].active = keep;
+    es[i].salary = keep ? 50001 + xs[i] % 149999 : xs[i] % 200000;
+  }
+  return es;
+}
+
 template <class F>
 static void bench(const char* label, std::size_t n, int reps, F f) {
   volatile u64 warm = f(0); (void)warm;
@@ -142,6 +153,7 @@ int main(int argc, char** argv) {
   std::vector<Emp> es(n);
   for (std::size_t i = 0; i < n; ++i) es[i] = {names[i % 8], xs[i] % 200000, xs[i] % 5 != 0};
   std::vector<Emp> sorted = sortedRows(es);
+  std::vector<Emp> runs = runRows(es, xs);
   u64 big = *std::max_element(xs.begin(), xs.end());
 
   auto same = [](Summ a, Summ b) { return a.count == b.count && a.total == b.total && a.first == b.first && a.last == b.last; };
@@ -151,7 +163,8 @@ int main(int argc, char** argv) {
             handU(xs, 1) == provedU(xs, 1) && handU(xs, 2) == provedU(xs, 2) && handU(xs, 7) == provedU(xs, 7) &&
             handF(xs, big) == provedF(xs, big) && handF(xs, xs[999]) == provedF(xs, xs[999]) && !provedF(xs, big + 1) &&
             same(handA(es, 50000, 90), provedA(es, 50000, 90)) && same(handA(es, 250000, 90), provedA(es, 250000, 90)) &&
-            same(handA(sorted, 50000, 90), viewsA(sorted, 50000, 90)) && same(handA(sorted, 50000, 90), provedA(sorted, 50000, 90));
+            same(handA(sorted, 50000, 90), viewsA(sorted, 50000, 90)) && same(handA(sorted, 50000, 90), provedA(sorted, 50000, 90)) &&
+            same(handA(runs, 50000, 90), viewsA(runs, 50000, 90)) && same(handA(runs, 50000, 90), provedA(runs, 50000, 90));
   std::printf("BENCH cpp items=%zu results_equal=%s\n", n, ok ? "true" : "false");
 
   const int reps = 20;
@@ -169,6 +182,9 @@ int main(int argc, char** argv) {
     bench("cpp_handA_sorted", n, reps, [&](int r) { return handA(sorted, 50000 + r % 2, 90).total; });
     bench("cpp_viewsA_sorted", n, reps, [&](int r) { return viewsA(sorted, 50000 + r % 2, 90).total; });
     bench("cpp_provedA_sorted", n, reps, [&](int r) { return provedA(sorted, 50000 + r % 2, 90).total; });
+    bench("cpp_handA_runs", n, reps, [&](int r) { return handA(runs, 50000 + r % 2, 90).total; });
+    bench("cpp_viewsA_runs", n, reps, [&](int r) { return viewsA(runs, 50000 + r % 2, 90).total; });
+    bench("cpp_provedA_runs", n, reps, [&](int r) { return provedA(runs, 50000 + r % 2, 90).total; });
     bench("cpp_handF_miss", n, reps, [&](int r) { return hitVal(handF(xs, big + 1 + r)); });
     bench("cpp_viewsF_miss", n, reps, [&](int r) { return hitVal(viewsF(xs, big + 1 + r)); });
     bench("cpp_eagerF_miss", n, reps, [&](int r) { return hitVal(eagerF(xs, big + 1 + r)); });

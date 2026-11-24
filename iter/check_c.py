@@ -33,9 +33,9 @@ def counts(fn):
     return dict(alloc=len(re.findall(r'lean_alloc_\w+\(', text)),
                 closure=len(re.findall(r'lean_alloc_closure\(', text)),
                 apply=len(re.findall(r'lean_apply_\w+\(', text)), fns=len(fs))
-# (Iter chain, hand loop, gated). enumerate is reported but not gated: its (index, item) pair and
-# counter state are heap cells in Lean 4.15's output (a known gap, see docs/DETAILS.md).
-pairs = [("l_iterU", "l_handU", True), ("l_iterA", "l_handA", True), ("l_iterF", "l_handF", False)]
+# (Iter chain, hand loop, gated). enumerate, drop and dropWhile are reported but not gated: the
+# (accumulator, counter/flag) pair is a heap cell in Lean 4.15's output (a known gap, see docs/DETAILS.md).
+pairs = [("l_iterU", "l_handU", True), ("l_iterA", "l_handA", True), ("l_iterF", "l_handF", False), ("l_iterD", "l_handD", False)]
 bad = 0
 print(f"{'function':10} {'alloc sites':>11} {'closures':>8} {'lean_apply':>10} {'C fns':>6}")
 for it, hd, gated in pairs:

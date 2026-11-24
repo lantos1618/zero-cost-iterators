@@ -10,8 +10,8 @@ An `Iter α` is its own loop: `fold k b` runs the body `k` over the items, in an
 | | |
 |---|---|
 | sources | `xs.iter` for `List` and `Array` |
-| adapters | `.map f`, `.filter p`, `.take n` (stops pulling after `n`), `.enumerate` (0-based positions) |
-| terminals | `.foldl init step`, `.find? p` (stops at the hit), `.groupFold key init step`, and `for x in it do ...` |
+| adapters | `.map f`, `.filter p`, `.take n` (stops pulling after `n`), `.takeWhile p` (stops at the first miss), `.drop n`, `.dropWhile p`, `.enumerate` (0-based positions), `.zip bs` (with an `Array`, by index, stops at the shorter) |
+| terminals | `.foldl init step`, `.find? p` (stops at the hit), `.count`, `.any p` / `.all p` / `.contains a` (stop when decided), `.min?`, `.max?`, `.groupFold key init step`, and `for x in it do ...` |
 
 Terminals return plain values; there is no fusion flag and no `Except` wrapper. `foldl` needs no associativity.
 `groupFold` keeps one accumulator per distinct key, keys in first-seen order, each key's items folded in input
@@ -85,6 +85,8 @@ first `.done`. Sources and adapters preserve it, so every chain gets its staged 
 |---|---|
 | `denotes_list`, `denotes_array` | `xs.iter` denotes `xs` (`a.toList` for arrays) |
 | `Denotes.map`, `.filter`, `.take`, `.enumerate` | the adapter denotes `l.map f`, `l.filter p`, `l.take n`, `l.enum` |
+| `Denotes.takeWhile`, `.drop`, `.dropWhile`, `.zip` (`Iter/More.lean`) | `l.takeWhile p`, `l.drop n`, `l.dropWhile p`, `l.zip bs.toList` |
+| `Denotes.count`, `.any`, `.all`, `.contains`, `.min?`, `.max?` | `l.length`, `l.any p`, `l.all p`, `l.any (· == a)`, `l.min?`, `l.max?` |
 | `Denotes.foldl`, `Denotes.find?` | the terminal equals `List.foldl` / `List.find?` on `l` |
 | `Denotes.forIn` | `for x in it` equals `for x in l`, in any lawful monad (state, exceptions) |
 | `Denotes.groupFold` | equals an independent stable group-then-fold (`groupRef`) |
@@ -160,7 +162,7 @@ excluded) and fails if any uses an axiom beyond `propext`, `Classical.choice` an
 - **Emitted C** (`iter/check_c.py`): for each benchmarked chain it follows the specialised loop Lean generates
   and counts heap allocation sites, closure allocations and indirect calls (`lean_apply_*`). Gate: `filter →
   map → foldl` on words and on records has no closures, no indirect calls and no more allocation sites than the
-  hand loop. `enumerate → find?` is reported but not gated (below).
+  hand loop. `enumerate → find?` and `drop → dropWhile → filter → count` are reported but not gated (below).
 - **CLI:** file reading, parsers, formatting and the binary. 34 commands compared byte for byte with
   hand-written expected files (`tasks/replay.sh`), exits 0, 1, 2 and 64; 300 fixed-seed generated inputs per
   command against references written without `Iter` (`taskcheck`); three planted mutants caught. With `--trace`
@@ -170,6 +172,8 @@ excluded) and fails if any uses an axiom beyond `propext`, `Classical.choice` an
 
 - The cost model is a model. Nothing proves that Lean's compiler preserves it; `check_c.py` and the benchmark
   are the evidence for compiled code.
+- `drop`, `dropWhile` and `zip` have the same gap: `drop → dropWhile → filter → count` has 16 allocation sites to
+  the hand loop's 0 and runs 6.0 vs 5.2 ns per item (1.17×). `zip` is proved but not benchmarked.
 - `take` and `enumerate` carry their counter in a pair with the accumulator. In Lean 4.15's output this pair,
   and the `(index, item)` pair, are heap cells per item: `enumerate → find?` is about 7× slower than a hand
   loop. The cost model does not cover these two adapters.

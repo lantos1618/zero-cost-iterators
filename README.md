@@ -1,6 +1,7 @@
 # zero-cost-iterators
 
-Chain `filter`, `map`, `take` and `enumerate` over an array or list, then finish with `foldl`, `find?`,
+Chain `filter`, `map`, `take`, `takeWhile`, `drop`, `dropWhile`, `enumerate` and `zip` (with an array) over an
+array or list, then finish with `foldl`, `find?`, `count`, `any`, `all`, `contains`, `min?`, `max?`,
 `groupFold` or a plain `for` loop. The chain runs as one loop with no intermediate lists, and Lean proves it
 computes exactly what the step-by-step list program computes.
 
@@ -76,18 +77,22 @@ ns per item, 1,000,000 items, median of 11 batches (batch min–max in [docs/PRO
 | filter → map → sum, words | random | 1.30* | 3.21 | **0.68** | 0.80 | 3.46 | **0.60** |
 | filter → map → summary, records | random | 3.86 | 4.13 | **1.36** | 2.98 | 4.43 | **1.38** |
 | filter → map → summary, records | sorted | 1.52 | **1.19** | **1.19** | 2.86 | **1.20** | 1.21 |
+| filter → map → summary, records | runs† | 1.47 | **1.07** | 1.30 | 2.92 | **1.21** | 1.34 |
 | enumerate → find, no match | random | 0.48 | **0.31** | 0.55 | 0.32 | 0.33 | **0.25** |
 
 "hand" is a plain C++ `for` loop with `if`, "views" is `std::views::filter | transform`, both g++ 11.4, on
 one VM pinned to one core, second of two rounds. Every variant returns the same results. *This batch was
-noisy (min 1.09); round 1 gave 0.78.
+noisy (min 1.09); round 1 gave 0.78. †Runs of 256 rows, all kept or all dropped, spread through the array;
+from a later run, whose sorted row read 1.49 / 1.07 / 1.12 and 2.87 / 1.19 / 1.19.
 
 - **Records, random order:** ours is 2.8× faster than the hand loop at `-O2` and 2.2× at `-O3`. The ablation
   shows the gain is the branch-free mask (the hand loop's `if` is taken for ~60% of rows in random order).
 - **Records, sorted:** a tie with `std::views` (1.19 vs 1.19, 1.21 vs 1.20). The views loop skips the pay
   arithmetic on dropped rows with a predictable branch; ours now skips the dropped prefix with a search, but
-  pays for the arithmetic on every row after it. If dropped rows were spread through the middle, `std::views`
-  would win; this was not measured.
+  pays for the arithmetic on every row after it.
+- **Records, runs:** with dropped runs in the middle, `std::views` wins by 1.1–1.2×. Its branch is
+  predictable there and it skips the arithmetic; ours does not. Skipping runs by search and testing blocks of
+  64 rows were both slower (prototypes, not kept). Ours wins when the keep test is unpredictable.
 - **Words:** 1.1–1.3× over the hand loop. **Search:** a loss at `-O2`, a win at `-O3`.
 - **"Faster than hand-written C++"** means faster than one plain hand loop. A person can write our loop by
   hand; the difference is that ours is generated and proved.
@@ -145,7 +150,7 @@ the first bad line in a file manifest.
 
 | path | contents |
 |---|---|
-| `iter/Iter/` | the library: `Basic` (iterators and their proofs), `Group` (`groupFold`), `Cost` (cost model), `Rewrite` (proved loop rewrites) |
+| `iter/Iter/` | the library: `Basic` (iterators and their proofs), `More` (more adapters, `zip`, terminals), `Group` (`groupFold`), `Cost` (cost model), `Rewrite` (proved loop rewrites) |
 | `iter/Iter/Gen.lean`, `iter/GenCpp.lean`, `iter/gen/` | proved word and record loop generators, their C++ printers, and the generated header |
 | `iter/FuzzCpp.lean` | differential fuzz of the C++ printers against Lean |
 | `iter/bench.cpp`, `iter/ablate.cpp` | C++ benchmark (hand, `std::views`, staged, ours) and the record-summary ablation |
