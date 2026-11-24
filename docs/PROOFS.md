@@ -139,18 +139,28 @@ block counts kept-run starts over its first 32 rows; a branchy block counts them
 row whose predecessor was not kept). The next block is masked iff more than 1 row in 16 starts a run. The
 choices depend on the data, but for each input they form some `mode`, so the theorem covers them: the policy
 can be changed for speed without touching the proof. The fuzz checks this directly: with the switch condition
-inverted, all 10,800 results still match.
+inverted, all 21,600 results still match.
 
 **The word sum** (`opt_correct`) uses the mask plus two more facts: `sum_lanes` (with associative,
 commutative `+`, item `j` can go to accumulator `j % k`; proved for `UInt64` via `BitVec`, and impossible
 for `Float`, which has no `AddLaws`) and `sum_mul` (`Σ x·c = (Σ x)·c`). It prints 8 lanes, chosen from an
 earlier timing; lane count was not ablated for the word sum.
 
+**Word `count`, `min?`, `max?`.** `count` is a sum of 1 per kept item, so `count_correct` reuses
+`opt_correct` (map every item to `1`) plus `sum_ones` (a sum of `n` ones is `n` as a 64-bit word). For `min?`
+and `max?`, `OpW o e` is `UInt64` with `o` as its `+` and `e` as its `0`; `minLaws` and `maxLaws` give it the
+same `AddLaws` the sum used (via `toNat` and `omega`), so `sum_select` and `sum_lanes` apply unchanged. The
+mask sends a dropped item to the identity: `v & -b` (0, for `max`) or `selMin b v = v | (b - 1)` (all ones,
+for `min`; `selMin_eq`). A `seen |= b` flag gives `none` when nothing is kept (`foldl_or`, `any_filter`).
+`red_correct : q.redRun r lanes k xs = q.red r k xs` for both, every lane count and input; `Pipe.toCppRed`
+prints it. Measured: `max?` 3.6–4.0× faster than both baselines; `count` 1.3–1.6× slower than the hand
+loop, which GCC already makes branch-free.
+
 ## What the languages can express
 
 | language | items | expressions | tests | shape |
 |---|---|---|---|---|
-| `Pipe` (words) | one `UInt64`, one parameter `k` | literals, `+ * ^ %` | `== <`, `&` | `filter → map → sum` |
+| `Pipe` (words) | one `UInt64`, one parameter `k` | literals, `+ * ^ %` | `== <`, `&` | `filter → map → sum`, `filter → count`, `filter → map → min?`/`max?` |
 | `SPipe` (records) | word fields, word parameters | literals, `+ * /` | `!= 0`, `>=`, `&` | `filter → map → (count, total, first, last)` |
 
 Nothing else: no `take`, `enumerate` or user functions, no strings in expressions, no other terminals.
@@ -162,7 +172,8 @@ Nothing else: no `take`, `enumerate` or user functions, no strings in expression
 | `Iter` chain = list program | proved (`Denotes`) |
 | list program = search + masked loop (records), masked multi-lane loop (words) | proved (`fast2_correct`, `opt_correct`) |
 | list program = search + any mix of masked and branchy rows (records) | proved (`fast3_correct`) |
-| that loop printed as C++ text | **trusted** (`SPipe.toCpp`, `SPipe.toCppAdapt`, `Loop.toCpp`, about 100 lines), **fuzzed** |
+| list program = masked lane loop for `count`, `min?`, `max?` (words) | proved (`count_correct`, `red_correct`) |
+| that loop printed as C++ text | **trusted** (`SPipe.toCpp`, `SPipe.toCppAdapt`, `Loop.toCpp`, `Pipe.toCppRed`, about 120 lines), **fuzzed** |
 | the switch policy picks fast blocks | measured only; it cannot change results |
 | C++ text → machine code | **trusted**: GCC |
 | count as `Nat` (Lean) vs `uint64_t` (C++) | agree below 2^64 rows |
@@ -173,12 +184,13 @@ Printer details that matter: Lean defines `x / 0 = 0` and `x % 0 = x`, C++ leave
 `%` are guarded unless the divisor is a nonzero literal. A missing field or parameter prints as `0ULL`, as
 Lean reads it. The filter is printed with `&`, never `&&` (measured below: `&&` costs 2×).
 
-**Fuzz** (`iter/FuzzCpp.lean`, rows `fuzz_*` in `replay.sh`): 300 random word pipelines with 0–9 lanes and
+**Fuzz** (`iter/FuzzCpp.lean`, rows `fuzz_*` in `replay.sh`): 300 random word pipelines with 0–9 lanes, each
+printed as sum, count, `min?` and `max?`, and
 300 random record pipelines, each record one printed twice (masked-only, and switching with block 0–9,
 window 0–9, threshold 0–24, so both bodies run on the 29 test rows), including division and modulo by zero and missing
-fields/parameters, each on inputs of length 0, 1, 5 and all. That is 10,800 results; the C++ is built with
-UBSan and its output must equal Lean's `Pipe.run` / `SPipe.run`. Planted bugs in the last-row select and in
-the branchy body's count must make the comparison fail; an inverted switch condition must not. By hand, disabling the `/` and `%` zero guards was caught by UBSan. The fuzz
+fields/parameters, each on inputs of length 0, 1, 5 and all. That is 21,600 results; the C++ is built with
+UBSan and its output must equal Lean's `Pipe.run` / `SPipe.run`. Planted bugs in the last-row select, in
+the branchy body's count and in the `min` mask must make the comparison fail; an inverted switch condition must not. By hand, disabling the `/` and `%` zero guards was caught by UBSan. The fuzz
 checks the printer, not GCC on the benchmark binary; that binary is checked by `results_equal`.
 
 ## What makes it fast (ablation)

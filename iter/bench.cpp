@@ -48,6 +48,26 @@ NOINLINE u64 eagerU(const std::vector<u64>& xs, u64 k) {
   return std::accumulate(doubled.begin(), doubled.end(), u64{0});
 }
 
+// filter -> count and filter -> map -> max over words
+NOINLINE u64 handC(const std::vector<u64>& xs, u64 k) {
+  u64 c = 0;
+  for (u64 x : xs) if ((x ^ k) % 3 == 0) ++c;
+  return c;
+}
+NOINLINE u64 viewsC(const std::vector<u64>& xs, u64 k) {
+  return (u64)std::ranges::distance(xs | v::filter([k](u64 x) { return (x ^ k) % 3 == 0; }));
+}
+NOINLINE std::optional<u64> handMax(const std::vector<u64>& xs, u64 k) {
+  std::optional<u64> m;
+  for (u64 x : xs) if ((x ^ k) % 3 == 0) { u64 y = x * 2; if (!m || y > *m) m = y; }
+  return m;
+}
+NOINLINE std::optional<u64> viewsMax(const std::vector<u64>& xs, u64 k) {
+  auto r = xs | v::filter([k](u64 x) { return (x ^ k) % 3 == 0; }) | v::transform([](u64 x) { return x * 2; });
+  auto it = std::ranges::max_element(r);
+  return it == r.end() ? std::nullopt : std::optional<u64>(*it);
+}
+
 // records: filter -> map to a pair -> fold into a summary
 NOINLINE Summ handA(const std::vector<Emp>& es, u64 minSal, u64 pct) {
   Summ s;
@@ -89,7 +109,7 @@ NOINLINE Hit eagerF(const std::vector<u64>& xs, u64 t) {
 }
 
 
-// Proved rewrites. provedU and provedA are generated from Lean (gen/proved_gen.hpp, proved by
+// Proved rewrites. provedU, provedC, provedMax, provedA and adaptA are generated from Lean (gen/proved_gen.hpp, proved by
 // Iter.Gen.wordPipe_gen and Iter.Gen.recPipe_gen; the printer is trusted). provedF below is written by hand
 // from Iter.Rewrite.chain_find_blocks and checked only by the results_equal test.
 #include "gen/proved_gen.hpp"
@@ -174,6 +194,10 @@ int main(int argc, char** argv) {
             same(handA(sorted, 50000, 90), viewsA(sorted, 50000, 90)) && same(handA(sorted, 50000, 90), provedA(sorted, 50000, 90)) &&
             same(handA(runs, 50000, 90), viewsA(runs, 50000, 90)) && same(handA(runs, 50000, 90), provedA(runs, 50000, 90)) &&
             same(handA(mixed, 50000, 90), viewsA(mixed, 50000, 90)) && same(handA(mixed, 50000, 90), provedA(mixed, 50000, 90));
+  for (u64 k : {1ull, 2ull, 7ull})
+    ok = ok && handC(xs, k) == viewsC(xs, k) && handC(xs, k) == provedC(xs, k) &&
+         handMax(xs, k) == viewsMax(xs, k) && handMax(xs, k) == provedMax(xs, k);
+  ok = ok && !provedMax(std::vector<u64>{1, 4}, 0) && provedC(std::vector<u64>{}, 0) == 0;
   for (auto* d : {&es, &sorted, &runs, &mixed}) for (u64 m : {0ull, 50000ull, 250000ull}) ok = ok && same(handA(*d, m, 90), adaptA(*d, m, 90));
   std::printf("BENCH cpp items=%zu results_equal=%s\n", n, ok ? "true" : "false");
 
@@ -185,6 +209,12 @@ int main(int argc, char** argv) {
     bench("cpp_viewsU", n, reps, [&](int r) { return viewsU(xs, r); });
     bench("cpp_eagerU", n, reps, [&](int r) { return eagerU(xs, r); });
     bench("cpp_provedU", n, reps, [&](int r) { return provedU(xs, r); });
+    bench("cpp_handC", n, reps, [&](int r) { return handC(xs, r); });
+    bench("cpp_viewsC", n, reps, [&](int r) { return viewsC(xs, r); });
+    bench("cpp_provedC", n, reps, [&](int r) { return provedC(xs, r); });
+    bench("cpp_handMax", n, reps, [&](int r) { return handMax(xs, r).value_or(0); });
+    bench("cpp_viewsMax", n, reps, [&](int r) { return viewsMax(xs, r).value_or(0); });
+    bench("cpp_provedMax", n, reps, [&](int r) { return provedMax(xs, r).value_or(0); });
     bench("cpp_handA", n, reps, [&](int r) { return handA(es, 50000 + r % 2, 90).total; });
     bench("cpp_viewsA", n, reps, [&](int r) { return viewsA(es, 50000 + r % 2, 90).total; });
     bench("cpp_eagerA", n, reps, [&](int r) { return eagerA(es, 50000 + r % 2, 90).total; });

@@ -1,7 +1,7 @@
 import Iter
 /-! Differential test of the trusted C++ printers. `fuzzcpp cpp N` prints a C++ program with `N` random
 word pipelines (random lane counts, including 0) and `N` random record pipelines (including `/` and `%` by
-zero, missing fields and parameters), each printed twice: as `SPipe.toCpp` and as `SPipe.toCppAdapt` with
+zero, missing fields and parameters), each word pipeline as `sum`, `count`, `min?` and `max?` loops, each record pipeline printed twice: as `SPipe.toCpp` and as `SPipe.toCppAdapt` with
 random block, window and threshold, so both bodies and the switch between them run; `fuzzcpp expect N` prints what Lean's `Pipe.run` / `SPipe.run`, the
 `Iter` chains, give on the same inputs. `replay.sh` builds the C++ with UBSan and diffs the two. -/
 open Iter.Gen
@@ -84,6 +84,11 @@ def lens (n : Nat) : List Nat := [0, 1, 5, n]
 def expect (c : Case) : List String :=
   (c.words.enum.flatMap fun (i, (_, q)) => (lens c.xs.size).flatMap fun n => c.ks.map fun k =>
     s!"W {i} {n} {k} {q.run k (c.xs.extract 0 n)}") ++
+  (c.words.enum.flatMap fun (i, (_, q)) => (lens c.xs.size).flatMap fun n => c.ks.map fun k =>
+    s!"C {i} {n} {k} {q.count k (c.xs.extract 0 n)}") ++
+  ([("N", Red.min), ("X", Red.max)].flatMap fun (t, r) => c.words.enum.flatMap fun (i, (_, q)) =>
+    (lens c.xs.size).flatMap fun n => c.ks.map fun k =>
+      s!"{t} {i} {n} {k} {((q.red r k (c.xs.extract 0 n)).map toString).getD "-"}") ++
   ((c.recs ++ c.recs).enum.flatMap fun (i, (q, _)) => (lens c.rows.size).flatMap fun n => c.pss.map fun ps =>
     let s := q.run ps (c.rows.extract 0 n)
     s!"R {i} {n} {ps.getD 0 0} {ps.getD 1 0} {s.count} {s.total} {s.first.getD "-"} {s.last.getD "-"}")
@@ -91,17 +96,22 @@ def expect (c : Case) : List String :=
 def cpp (c : Case) : String :=
   let u := fun (l : List UInt64) => ", ".intercalate (l.map (s!"{·}ULL"))
   let rows := ", ".intercalate (c.rows.toList.map fun r => s!"\{\"{r.label}\", {u r.f}}")
-  let words := c.words.enum.map fun (i, (l, q)) => (opt l q).toCpp s!"w{i}"
+  let words := c.words.enum.flatMap fun (i, (l, q)) => [(opt l q).toCpp s!"w{i}",
+    (opt l q.countPipe).toCpp s!"c{i}", q.toCppRed .min l s!"n{i}", q.toCppRed .max l s!"x{i}"]
   let fs := ["e.f0", "e.f1", "e.f2"]
   let recs := (c.recs.enum.map fun (i, (q, _)) => q.toCpp 2 s!"r{i}" "Row" fs) ++
     c.recs.enum.map fun (i, (q, b, w, d)) => q.toCppAdapt 2 s!"a{i}" "Row" fs b w d
-  let wcalls := (List.range c.words.length).map fun i => s!"&w{i}"
+  let calls := fun (t : String) => ", ".intercalate ((List.range c.words.length).map fun i => s!"&{t}{i}")
   let rcalls := ((List.range c.recs.length).map fun i => s!"&r{i}") ++ (List.range c.recs.length).map fun i => s!"&a{i}"
   "\n".intercalate ([
-    "#include <cstdint>", "#include <cstdio>", "#include <string_view>", "#include <vector>",
+    "#include <algorithm>", "#include <cstdint>", "#include <cstdio>", "#include <optional>", "#include <string_view>",
+    "#include <vector>",
     "struct Row { std::string_view name; std::uint64_t f0, f1, f2; };",
     "struct Summ { std::uint64_t count = 0, total = 0; std::string_view first, last; };"] ++ words ++ recs ++ [
-    s!"static std::uint64_t (*const W[])(const std::vector<std::uint64_t>&, std::uint64_t) = \{{", ".intercalate wcalls}};",
+    s!"static std::uint64_t (*const W[])(const std::vector<std::uint64_t>&, std::uint64_t) = \{{calls "w"}};",
+    s!"static std::uint64_t (*const C[])(const std::vector<std::uint64_t>&, std::uint64_t) = \{{calls "c"}};",
+    s!"static std::optional<std::uint64_t> (*const N[])(const std::vector<std::uint64_t>&, std::uint64_t) = \{{calls "n"}};",
+    s!"static std::optional<std::uint64_t> (*const X[])(const std::vector<std::uint64_t>&, std::uint64_t) = \{{calls "x"}};",
     s!"static Summ (*const R[])(const std::vector<Row>&, std::uint64_t, std::uint64_t) = \{{", ".intercalate rcalls}};",
     "int main() {",
     s!"  const std::vector<std::uint64_t> xs = \{{u c.xs.toList}};",
@@ -114,6 +124,15 @@ def cpp (c : Case) : String :=
     "  for (std::size_t i = 0; i < sizeof W / sizeof *W; ++i) for (std::size_t n : lw) for (std::uint64_t k : ks)",
     "    std::printf(\"W %zu %zu %llu %llu\\n\", i, n, (unsigned long long)k,",
     "      (unsigned long long)W[i](std::vector<std::uint64_t>(xs.begin(), xs.begin() + n), k));",
+    "  for (std::size_t i = 0; i < sizeof C / sizeof *C; ++i) for (std::size_t n : lw) for (std::uint64_t k : ks)",
+    "    std::printf(\"C %zu %zu %llu %llu\\n\", i, n, (unsigned long long)k,",
+    "      (unsigned long long)C[i](std::vector<std::uint64_t>(xs.begin(), xs.begin() + n), k));",
+    "  for (auto [t, F] : {std::pair{\"N\", N}, std::pair{\"X\", X}})",
+    "    for (std::size_t i = 0; i < sizeof N / sizeof *N; ++i) for (std::size_t n : lw) for (std::uint64_t k : ks) {",
+    "      auto o = F[i](std::vector<std::uint64_t>(xs.begin(), xs.begin() + n), k);",
+    "      if (o) std::printf(\"%s %zu %zu %llu %llu\\n\", t, i, n, (unsigned long long)k, (unsigned long long)*o);",
+    "      else std::printf(\"%s %zu %zu %llu -\\n\", t, i, n, (unsigned long long)k);",
+    "    }",
     "  for (std::size_t i = 0; i < sizeof R / sizeof *R; ++i) for (std::size_t n : lr) for (auto& p : ps) {",
     "    Summ s = R[i](std::vector<Row>(rows.begin(), rows.begin() + n), p[0], p[1]);",
     "    std::printf(\"R %zu %zu %llu %llu %llu %llu %.*s %.*s\\n\", i, n, (unsigned long long)p[0], (unsigned long long)p[1],",

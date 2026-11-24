@@ -1,4 +1,5 @@
 import Iter.Rewrite
+import Iter.More
 /-!
 # A proved optimiser for word pipelines, with a C++ printer
 
@@ -132,23 +133,26 @@ def P.toCpp : P → String
   | .lt a b => s!"({a.toCpp} < {b.toCpp})"
   | .and p q => s!"({p.toCpp} & {q.toCpp})"
 
+/-- the lane loop over `xs`: `step lane` runs with item `x`; full rounds of `n` items, then the tail -/
+def laneLoop (n : Nat) (step : String → String) : List String := [
+  "  std::size_t n = xs.size(), i = 0;",
+  s!"  for (; i + {n} <= n; i += {n})",
+  s!"    for (std::size_t j = 0; j < {n}; ++j) \{ std::uint64_t x = xs[i + j]; {step "j"} }",
+  s!"  for (; i < n; ++i) \{ std::uint64_t x = xs[i]; {step s!"i % {n}"} }"]
+
+def header (ret name : String) : String :=
+  s!"__attribute__((noinline)) static {ret} {name}(const std::vector<std::uint64_t>& xs, std::uint64_t k) \{"
+
 /-- one C++ function `name(xs, k)`; 0 lanes is printed as 1 (same sum, and no zero-length array or
 zero-step loop) -/
 def Loop.toCpp (L : Loop) (name : String) : String :=
   let n := max L.lanes 1
-  let add := fun (lane : String) => s!"acc[{lane}] += {L.body.toCpp} & (0 - (std::uint64_t){L.keep.toCpp});"
-  String.intercalate "\n" [
-    s!"__attribute__((noinline)) static std::uint64_t {name}(const std::vector<std::uint64_t>& xs, std::uint64_t k) \{",
-    "  (void)k;",
-    s!"  std::uint64_t acc[{n}] = \{};",
-    "  std::size_t n = xs.size(), i = 0;",
-    s!"  for (; i + {n} <= n; i += {n})",
-    s!"    for (std::size_t j = 0; j < {n}; ++j) \{ std::uint64_t x = xs[i + j]; {add "j"} }",
-    s!"  for (; i < n; ++i) \{ std::uint64_t x = xs[i]; {add s!"i % {n}"} }",
+  String.intercalate "\n" ([header "std::uint64_t" name, "  (void)k;", s!"  std::uint64_t acc[{n}] = \{};"] ++
+    laneLoop n (fun lane => s!"acc[{lane}] += {L.body.toCpp} & (0 - (std::uint64_t){L.keep.toCpp});") ++ [
     "  std::uint64_t total = 0;",
     "  for (std::uint64_t a : acc) total += a;",
     s!"  return total * {L.scale.toCpp};",
-    "}"]
+    "}"])
 
 /-! ## The benchmark's word pipeline -/
 
@@ -162,6 +166,197 @@ theorem wordPipe_chain (k : UInt64) (xs : Array UInt64) :
 theorem wordPipe_gen (k : UInt64) (xs : Array UInt64) :
     (opt 8 wordPipe).run k xs = (xs.iter.filter (fun x => (x ^^^ k) % 3 == 0) |>.map (· * 2)).foldl 0 (· + ·) :=
   (opt_correct 8 wordPipe k xs).trans (wordPipe_chain k xs)
+
+/-! ## `count`, `min?` and `max?` over word pipelines
+
+`count` is a sum of 1 per kept item, so it reuses the sum loop (`count_correct`). `min?` and `max?` use the
+same lanes with `min`/`max` as the `+` (`OpW` below), a masked body that turns dropped items into the
+identity (`~0` for `min`, `0` for `max`), and one `seen` flag for the empty case (`red_correct`). -/
+
+theorem u64_ofNat_succ (n : Nat) : (n + 1).toUInt64 = n.toUInt64 + 1 :=
+  UInt64.toNat_inj.1 (by
+    rw [UInt64.toNat_add]
+    show (n + 1) % 2 ^ 64 = (n % 2 ^ 64 + 1) % 2 ^ 64
+    rw [Nat.add_mod n 1, show 1 % 2 ^ 64 = 1 from rfl])
+
+theorem sum_ones {σ : Type} : ∀ l : List σ, sumL (l.map fun _ => (1 : UInt64)) = l.length.toUInt64
+  | [] => rfl
+  | _ :: xs => by
+    rw [List.map_cons, sumL_cons u64Laws, sum_ones xs, List.length_cons, u64_ofNat_succ, u64Laws.comm]
+
+def Pipe.count (q : Pipe) (k : UInt64) (xs : Array UInt64) : Nat :=
+  (xs.iter.filter fun x => q.keep.eval k x).count
+
+/-- `count` as a word pipeline: `filter keep → map 1 → sum` -/
+def Pipe.countPipe (q : Pipe) : Pipe := ⟨q.keep, .lit 1⟩
+
+/-- the optimised sum loop of `countPipe` is `count`, as a 64-bit word -/
+theorem count_correct (lanes : Nat) (q : Pipe) (k : UInt64) (xs : Array UInt64) :
+    (opt lanes q.countPipe).run k xs = (q.count k xs).toUInt64 := by
+  rw [opt_correct, Pipe.run, (((denotes_array xs).filter _).map _).foldl, Pipe.count,
+    ((denotes_array xs).filter _).count]
+  exact sum_ones _
+
+/-- `UInt64` with `o` as its `+` and `e` as its `0` -/
+structure OpW (o : UInt64 → UInt64 → UInt64) (e : UInt64) where
+  v : UInt64
+
+instance {o e} : Add (OpW o e) := ⟨fun a b => ⟨o a.v b.v⟩⟩
+instance {o e} : OfNat (OpW o e) 0 := ⟨⟨e⟩⟩
+
+theorem opLaws {o : UInt64 → UInt64 → UInt64} {e : UInt64} (ha : ∀ a b c, o (o a b) c = o a (o b c))
+    (hc : ∀ a b, o a b = o b a) (he : ∀ a, o e a = a) : AddLaws (OpW o e) :=
+  ⟨fun a b c => congrArg OpW.mk (ha a.v b.v c.v), fun a b => congrArg OpW.mk (hc a.v b.v),
+   fun ⟨a⟩ => congrArg OpW.mk (he a)⟩
+
+theorem toNat_min (a b : UInt64) : (min a b).toNat = min a.toNat b.toNat := by
+  show (if a ≤ b then a else b).toNat = _
+  split <;> rename_i h <;> rw [UInt64.le_iff_toNat_le] at h <;> omega
+
+theorem toNat_max (a b : UInt64) : (max a b).toNat = max a.toNat b.toNat := by
+  show (if a ≤ b then b else a).toNat = _
+  split <;> rename_i h <;> rw [UInt64.le_iff_toNat_le] at h <;> omega
+
+theorem minLaws : AddLaws (OpW min (0 - 1)) :=
+  opLaws (fun a b c => UInt64.toNat_inj.1 (by simp only [toNat_min]; omega))
+    (fun a b => UInt64.toNat_inj.1 (by simp only [toNat_min]; omega))
+    (fun a => UInt64.toNat_inj.1 (by
+      have := a.toNat_lt_size
+      rw [toNat_min, show (0 - 1 : UInt64).toNat = 2 ^ 64 - 1 from rfl]
+      simp only [UInt64.size] at this; omega))
+
+theorem maxLaws : AddLaws (OpW max 0) :=
+  opLaws (fun a b c => UInt64.toNat_inj.1 (by simp only [toNat_max]; omega))
+    (fun a b => UInt64.toNat_inj.1 (by simp only [toNat_max]; omega))
+    (fun a => UInt64.toNat_inj.1 (by rw [toNat_max, show (0 : UInt64).toNat = 0 from rfl]; omega))
+
+/-- `v | (b - 1)`: `v` if `b`, else all ones (the identity of `min`) -/
+def selMin (b : Bool) (v : UInt64) : UInt64 := v ||| ((if b then 1 else 0) - 1)
+
+theorem selMin_eq (b : Bool) (v : UInt64) : selMin b v = if b then v else 0 - 1 := by
+  cases b
+  · exact UInt64.toBitVec_inj.1 (by
+      show v.toBitVec ||| (0 - 1 : UInt64).toBitVec = (0 - 1 : UInt64).toBitVec
+      rw [show (0 - 1 : UInt64).toBitVec = BitVec.allOnes 64 by decide]; exact BitVec.or_allOnes)
+  · exact UInt64.toBitVec_inj.1 (by
+      show v.toBitVec ||| (1 - 1 : UInt64).toBitVec = v.toBitVec
+      rw [show (1 - 1 : UInt64).toBitVec = 0#64 by decide]; exact BitVec.or_zero)
+
+/-- reductions with an identity, printed as lanes -/
+inductive Red where
+  | min
+  | max
+
+def Red.op : Red → UInt64 → UInt64 → UInt64
+  | .min => Min.min
+  | .max => Max.max
+
+def Red.id : Red → UInt64
+  | .min => 0 - 1
+  | .max => 0
+
+/-- the masked body: the item if kept, else the identity -/
+def Red.mask : Red → Bool → UInt64 → UInt64
+  | .min => selMin
+  | .max => sel
+
+theorem Red.laws : (r : Red) → AddLaws (OpW r.op r.id)
+  | .min => minLaws
+  | .max => maxLaws
+
+theorem Red.mask_eq : (r : Red) → ∀ b v, r.mask b v = if b then v else r.id
+  | .min => selMin_eq
+  | .max => fun b v => select_mask b v
+
+/-- the `Iter` chain: `filter keep → map f → min?` (or `max?`) -/
+def Pipe.red (r : Red) (q : Pipe) (k : UInt64) (xs : Array UInt64) : Option UInt64 :=
+  match r with
+  | .min => (xs.iter.filter (fun x => q.keep.eval k x) |>.map (fun x => q.f.eval k x)).min?
+  | .max => (xs.iter.filter (fun x => q.keep.eval k x) |>.map (fun x => q.f.eval k x)).max?
+
+/-- what the printed C++ computes: `seen |= keep`, item `j` folded into lane `j % lanes` with `op`, lanes
+folded together -/
+def Pipe.redRun (r : Red) (lanes : Nat) (q : Pipe) (k : UInt64) (xs : Array UInt64) : Option UInt64 :=
+  let acc := (xs.toList.map fun x => (⟨r.mask (q.keep.eval k x) (q.f.eval k x)⟩ : OpW r.op r.id)).foldl rot
+    (List.replicate lanes 0)
+  if xs.toList.foldl (fun s x => s || q.keep.eval k x) false then some (sumL acc).v else none
+
+theorem foldl_or {σ : Type} (p : σ → Bool) : ∀ (l : List σ) (s : Bool),
+    l.foldl (fun s x => s || p x) s = (s || l.any p)
+  | [], s => by simp
+  | x :: xs, s => by rw [List.foldl_cons, foldl_or p xs, List.any_cons, Bool.or_assoc]
+
+theorem any_filter {σ : Type} (p : σ → Bool) (g : σ → UInt64) : ∀ l : List σ,
+    l.any p = !((l.filter p).map g).isEmpty
+  | [] => rfl
+  | x :: xs => by
+    by_cases hp : p x = true
+    · simp [List.filter_cons, hp]
+    · simp only [List.any_cons, hp, List.filter_cons, Bool.false_eq_true, ↓reduceIte, Bool.false_or]
+      exact any_filter p g xs
+
+theorem foldl_opW {o : UInt64 → UInt64 → UInt64} {e : UInt64} : ∀ (l : List UInt64) (a : UInt64),
+    (l.map (OpW.mk (o := o) (e := e))).foldl (· + ·) ⟨a⟩ = ⟨l.foldl o a⟩
+  | [], _ => rfl
+  | x :: xs, a => foldl_opW xs (o a x)
+
+/-- `min?`/`max?` written with the operation: `none` for no items, else a fold from the first -/
+def optOf (o : UInt64 → UInt64 → UInt64) : List UInt64 → Option UInt64
+  | [] => none
+  | x :: xs => some (xs.foldl o x)
+
+/-- the lane loop equals `min?` / `max?` of the chain, for every pipeline, lane count and input -/
+theorem red_correct (r : Red) (lanes : Nat) (q : Pipe) (k : UInt64) (xs : Array UInt64) :
+    q.redRun r lanes k xs = q.red r k xs := by
+  let p := fun x => q.keep.eval k x
+  let g := fun x => q.f.eval k x
+  have hm : (fun x => (⟨r.mask (p x) (g x)⟩ : OpW r.op r.id)) = fun x => if p x then ⟨g x⟩ else 0 :=
+    funext fun x => by rw [r.mask_eq]; cases p x <;> rfl
+  have hl : ((xs.toList.filter p).map g).min? = optOf min ((xs.toList.filter p).map g) ∧
+      ((xs.toList.filter p).map g).max? = optOf max ((xs.toList.filter p).map g) := by
+    constructor <;> cases (xs.toList.filter p).map g <;> rfl
+  have hr : q.red r k xs = optOf r.op ((xs.toList.filter p).map g) := by
+    cases r
+    · exact (((denotes_array xs).filter p).map g).min?.trans hl.1
+    · exact (((denotes_array xs).filter p).map g).max?.trans hl.2
+  rw [hr, Pipe.redRun]
+  show (if xs.toList.foldl (fun s x => s || p x) false then
+    some (sumL ((xs.toList.map fun x => (⟨r.mask (p x) (g x)⟩ : OpW r.op r.id)).foldl rot
+      (List.replicate lanes 0))).v else none) = _
+  rw [foldl_or, Bool.false_or, any_filter p g, sum_lanes r.laws, hm, ← sum_select r.laws,
+    show (xs.toList.filter p).map (fun x => (⟨g x⟩ : OpW r.op r.id)) = ((xs.toList.filter p).map g).map OpW.mk
+      by rw [List.map_map]; rfl]
+  generalize (xs.toList.filter p).map g = L
+  cases L with
+  | nil => rfl
+  | cons x rest =>
+    simp only [List.isEmpty_cons, Bool.not_false, ↓reduceIte, sumL, optOf]
+    rw [show (0 : OpW r.op r.id) = ⟨r.id⟩ from rfl, foldl_opW, List.foldl_cons,
+      show r.op r.id x = x from congrArg OpW.v (r.laws.zero_add ⟨x⟩)]
+
+/-- prints `Pipe.redRun r lanes q`, with `b` the kept flag as a word; 0 lanes is printed as 1 -/
+def Pipe.toCppRed (r : Red) (lanes : Nat) (q : Pipe) (name : String) : String :=
+  let n := max lanes 1
+  let (op, id, body) := match r with
+    | .min => ("std::min<std::uint64_t>", "~0ULL", s!"({q.f.toCpp} | (b - 1))")
+    | .max => ("std::max<std::uint64_t>", "0ULL", s!"({q.f.toCpp} & (0 - b))")
+  String.intercalate "\n" ([header "std::optional<std::uint64_t>" name, "  (void)k;",
+    s!"  std::uint64_t acc[{n}], seen = 0;", s!"  for (std::uint64_t& a : acc) a = {id};"] ++
+    laneLoop n (fun lane => s!"std::uint64_t b = (std::uint64_t){q.keep.toCpp}; seen |= b; acc[{lane}] = {op}(acc[{lane}], {body});") ++ [
+    s!"  std::uint64_t m = {id};",
+    s!"  for (std::uint64_t a : acc) m = {op}(m, a);",
+    "  if (seen) return m;",
+    "  return std::nullopt;",
+    "}"])
+
+/-- the benchmark's `filter → map → max?` and `filter → count`, as generated -/
+theorem wordPipe_max (k : UInt64) (xs : Array UInt64) :
+    wordPipe.redRun .max 4 k xs = (xs.iter.filter (fun x => (x ^^^ k) % 3 == 0) |>.map (· * 2)).max? :=
+  red_correct .max 4 wordPipe k xs
+
+theorem wordPipe_count (k : UInt64) (xs : Array UInt64) :
+    (opt 8 wordPipe.countPipe).run k xs = (xs.iter.filter (fun x => (x ^^^ k) % 3 == 0)).count.toUInt64 :=
+  count_correct 8 wordPipe k xs
 
 /-! ## Record summaries -/
 

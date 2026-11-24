@@ -82,6 +82,8 @@ ns per item, 1,000,000 items, median of 11 batches (batch min–max in [docs/PRO
 | filter → map → summary, records‡ | sorted | 1.51 | 1.14 | 1.15 | 2.87 | 1.08 | 1.06 |
 | filter → map → summary, records‡ | runs† | 1.49 | 1.13 | 1.12 | 2.87 | 1.08 | 1.05 |
 | filter → map → summary, records‡ | mixed† | 2.71 | 2.67 | **1.25** | 2.91 | 2.66 | **1.18** |
+| filter → count, words§ | random | **0.38** | 3.30 | 0.59 | **0.38** | 3.15 | 0.49 |
+| filter → map → max?, words§ | random | 3.29 | 3.18 | **0.90** | 3.32 | 3.07 | **0.77** |
 | enumerate → find, no match | random | 0.48 | **0.31** | 0.55 | 0.32 | 0.33 | **0.25** |
 
 "hand" is a plain C++ `for` loop with `if`, "views" is `std::views::filter | transform`, both g++ 11.4, on
@@ -89,7 +91,7 @@ one VM pinned to one core, second of two rounds. Every variant returns the same 
 noisy (min 1.09); round 1 gave 0.78. †"runs": runs of 256 rows, all kept or all dropped, spread through the
 array; "mixed": 65,536-row stretches that alternate between random rows and runs. ‡Records rows are from a
 later run, round 1 (in round 2 the VM slowed every `-O2` loop by 10–20%; the order did not change); "ours" is
-the switching loop `adaptA`. Unbolded rows are ties within the noise.
+the switching loop `adaptA`. §From a later run, round 1. Unbolded rows are ties within the noise.
 
 - **Records, random order:** ours is 2.6–2.8× faster than the hand loop and 3.0–3.2× faster than `std::views`.
   The ablation shows the gain is the branch-free mask (the hand loop's `if` is taken for ~60% of rows in random
@@ -103,16 +105,23 @@ the switching loop `adaptA`. Unbolded rows are ties within the noise.
   counted flips on every row cost 5–15%; counting over the first 32 rows of a masked block, and only on kept
   rows in a branchy block, is what made it free. At `-O3` GCC turned the branchy block back into selects
   (1.93 ns on runs); the printed `optimize("no-tree-loop-if-convert")` attribute stops that (1.22).
-- **Words:** 1.1–1.3× over the hand loop. **Search:** a loss at `-O2`, a win at `-O3`.
+- **Words, `max?`:** 3.6–4.0× faster than both. The hand loop's `if (keep) { y = x * 2; if (y > m) m = y; }`
+  branches on a coin flip; ours masks dropped items to 0 and folds 4 `max` lanes (`red_correct`).
+- **Words, `count`:** a loss, 1.3–1.6×. GCC already compiles `if (keep) ++c` branch-free, so the mask and
+  8 lanes only add work; 1, 2 and 4 lanes measured 0.47–0.72 against 0.40–0.42. The loop is still generated
+  and proved, but the hand loop is the one to use.
+- **Words, sum:** 1.1–1.3× over the hand loop. **Search:** a loss at `-O2`, a win at `-O3`.
 - **"Faster than hand-written C++"** means faster than one plain hand loop. A person can write our loop by
   hand; the difference is that ours is generated and proved.
-- **What the languages can express:** word pipelines `filter → map → sum` over the item and one parameter,
+- **What the languages can express:** word pipelines `filter → map → sum`, `filter → count` and
+  `filter → map → min?`/`max?` over the item and one parameter,
   with `+ * ^ %`, `== <` and `&`; record pipelines `filter → map → summary` over word fields and parameters,
   with `+ * /`, `!= 0 >=` and `&`. No other adapters, no strings, no user functions.
 - **Proved vs trusted:** the loops are proved equal to the `Iter` chains (`opt_correct`, `fast2_correct`,
-  `fast3_correct`). The C++ printers (about 100 lines) and GCC are trusted. The printers are fuzzed: 10,800
-  results from 900 random loops, record ones with random block size, window and switch threshold, compiled with
-  UBSan, must match Lean exactly. Planted bugs in the masked and branchy bodies must be caught, and inverting
+  `fast3_correct`, `count_correct`, `red_correct`). The C++ printers (about 120 lines) and GCC are trusted.
+  The printers are fuzzed: 21,600 results from 1,800 random loops (each word pipeline as sum, count, `min?` and
+  `max?`), record ones with random block size, window and switch threshold, compiled with
+  UBSan, must match Lean exactly. Planted bugs in the masked and branchy bodies and in the `min` mask must be caught, and inverting
   the switch policy must change nothing. The block
   search is still copied by hand and only result-checked.
 - **How the proofs work, and the measurements behind each claim:** [docs/PROOFS.md](docs/PROOFS.md).

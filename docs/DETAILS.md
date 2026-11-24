@@ -125,7 +125,7 @@ identity `0` (`AddLaws`), instantiated for `UInt64` (`u64Laws`, wrapping like C+
 | `summary_split` | folding (count, total, first, last) = (length, sum, first row, last row) |
 | `head_filter`, `getLast_filter` | the first / last kept row is a forward / backward `find?` |
 
-**Generator (`iter/Iter/Gen.lean`).** `Pipe` is `filter keep → map f → sum` over 64-bit words, with
+**Generator (`iter/Iter/Gen.lean`).** `Pipe` is `filter keep → map f → sum` (also `count`, `min?`, `max?`) over 64-bit words, with
 expressions built from the item, a parameter `k`, literals, `+`, `*`, `^`, `%`, `==`, `<` and `&`. `opt` makes
 a masked, `k`-lane loop and moves a constant right factor of `f` after the sum. `opt_correct`: for every
 pipeline, lane count and input, `(opt lanes q).run k xs = q.run k xs`, where `q.run` is the `Iter` chain.
@@ -145,15 +145,17 @@ dropped prefix changes nothing) and `step1_step2` (once `first` is set the two s
 that picks per block from the data (`adaptA`, `recPipe_adapt`). The count is a `Nat` in Lean and a `uint64_t` in
 C++, which agree for any array that fits in memory.
 
-**Printer fuzzing (`iter/FuzzCpp.lean`).** 300 random word pipelines (0–9 lanes) and 300 random record
+**Printer fuzzing (`iter/FuzzCpp.lean`).** 300 random word pipelines (0–9 lanes; each as sum, count, `min?`
+and `max?`) and 300 random record
 pipelines, with `%` and `/` by zero and missing fields and parameters, each run on inputs of length 0, 1, 5
-and all; each record pipeline is printed masked-only and switching (random block, window and threshold): 10,800
+and all; each record pipeline is printed masked-only and switching (random block, window and threshold): 21,600
 results. The C++ is built with `-fsanitize=undefined` and its output must equal Lean's `Pipe.run` /
 `SPipe.run` byte for byte (`fuzz_cpp`). `fuzz_mutant` (last row taken on every row) and `fuzz_mutant2`
-(branchy body drops the count) plant printer bugs and require the comparison to fail; `fuzz_policy` inverts
+(branchy body drops the count) and `fuzz_mutant3` (`min` mask inverted) plant printer bugs and require the comparison to fail; `fuzz_policy` inverts
 the switch condition and requires it to pass.
 
-`bench.cpp`'s `provedU` and `provedA` come from that header; `provedF` is a hand transcription of the block
+`bench.cpp`'s `provedU`, `provedC`, `provedMax`, `provedA` and `adaptA` come from that header (`count_correct`
+and `red_correct` cover the word `count` and `min?`/`max?` loops); `provedF` is a hand transcription of the block
 search, compared with the hand loop on several inputs (`results_equal`), not proved.
 
 **CLI (`iter/TaskCore.lean`).** `logPipe_spec`, `salesPipe_spec`, `salesPipe_keys` and `manifestPipe_spec`
