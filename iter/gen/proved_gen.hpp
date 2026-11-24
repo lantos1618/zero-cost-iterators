@@ -19,14 +19,18 @@ __attribute__((noinline)) static std::uint64_t provedU(const std::vector<std::ui
 
 // Iter.Gen.recPipe_gen proves this loop equal to the running summary; needs Emp and Summ from the includer.
 __attribute__((noinline)) static Summ provedA(const std::vector<Emp>& es, std::uint64_t p0, std::uint64_t p1) {
-  std::uint64_t cnt[4] = {}, tot[4] = {};
-  std::size_t n = es.size(), i = 0;
-  for (; i + 4 <= n; i += 4)
-    for (std::size_t j = 0; j < 4; ++j) { const Emp& e = es[i + j]; std::uint64_t m = 0 - (std::uint64_t)(((std::uint64_t)e.active != 0) & (e.salary >= p0)); cnt[j] += 1 & m; tot[j] += ((e.salary * p1) / 100ULL) & m; }
-  for (; i < n; ++i) { const Emp& e = es[i]; std::uint64_t m = 0 - (std::uint64_t)(((std::uint64_t)e.active != 0) & (e.salary >= p0)); cnt[i % 4] += 1 & m; tot[i % 4] += ((e.salary * p1) / 100ULL) & m; }
-  Summ s;
-  for (std::size_t j = 0; j < 4; ++j) { s.count += cnt[j]; s.total += tot[j]; }
-  for (std::size_t j = 0; j < n; ++j) { const Emp& e = es[j]; if ((((std::uint64_t)e.active != 0) & (e.salary >= p0))) { s.first = e.name; break; } }
-  for (std::size_t j = n; j-- > 0;) { const Emp& e = es[j]; if ((((std::uint64_t)e.active != 0) & (e.salary >= p0))) { s.last = e.name; break; } }
+  std::uint64_t cnt = 0, tot = 0;
+  const Emp* fp = nullptr;
+  const Emp* lp = nullptr;
+  for (const Emp& e : es) {
+    bool k = (((std::uint64_t)e.active != 0) & (e.salary >= p0));
+    std::uint64_t m = 0 - (std::uint64_t)k;
+    cnt += 1 & m; tot += ((e.salary * p1) / 100ULL) & m;
+    fp = (k & (fp == nullptr)) ? &e : fp;
+    lp = k ? &e : lp;
+  }
+  Summ s; s.count = cnt; s.total = tot;
+  if (fp) s.first = fp->name;
+  if (lp) s.last = lp->name;
   return s;
 }

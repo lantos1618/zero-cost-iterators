@@ -131,11 +131,18 @@ pipeline, lane count and input, `(opt lanes q).run k xs = q.run k xs`, where `q.
 checks the committed `gen/proved_gen.hpp` is exactly what it prints.
 
 `SPipe` is `filter keep → map (label, pay) → running (count, total, first, last)` over rows of word fields,
-with expressions built from fields, parameters, literals, `+`, `*`, `/`, `!= 0`, `>=` and `&`. `SPipe.fast` is
-what the printed loop computes (masked count and total over `lanes` accumulators, a forward and a backward
-search); `fast_correct` proves it equals `SPipe.run`, the `Iter` chain, and `recPipe_gen` instantiates it for
-the benchmark. `SPipe.toCpp` prints it. The count is a `Nat` in Lean and a `uint64_t` in C++, which agree for
-any array that fits in memory.
+with expressions built from fields, parameters, literals, `+`, `*`, `/`, `!= 0`, `>=` and `&`; a missing field
+or parameter reads as 0. `SPipe.fast1` is what the printed loop computes: one pass, masked count and total,
+first and last kept as row pointers with selects. `step1_filter` shows each step skips dropped rows and is
+the summary step on kept ones; `fast1_correct` proves `fast1 = run`, the `Iter` chain, and `recPipe_gen`
+instantiates it for the benchmark. `SPipe.toCpp` prints it. The count is a `Nat` in Lean and a `uint64_t` in
+C++, which agree for any array that fits in memory.
+
+**Printer fuzzing (`iter/FuzzCpp.lean`).** 300 random word pipelines (0–9 lanes) and 300 random record
+pipelines, with `%` and `/` by zero and missing fields and parameters, each run on inputs of length 0, 1, 5
+and all: 7,200 results. The C++ is built with `-fsanitize=undefined` and its output must equal Lean's
+`Pipe.run` / `SPipe.run` byte for byte (`fuzz_cpp`). `fuzz_mutant` plants one printer bug (first row taken on
+every kept row) and requires the comparison to fail.
 
 `bench.cpp`'s `provedU` and `provedA` come from that header; `provedF` is a hand transcription of the block
 search, compared with the hand loop on several inputs (`results_equal`), not proved.
@@ -170,17 +177,19 @@ excluded) and fails if any uses an axiom beyond `propext`, `Classical.choice` an
 
 ## Benchmark
 
-`iter/Bench.lean` and `iter/bench.cpp`, both run by `BENCH=1 ./replay.sh`: the same generated data, 1,000,000
-items, each timing the median of 5 batches of 20 calls after a warm-up call; two rounds, the second reported in
-the README. Each call varies one argument so the compiler cannot hoist it out of the timing loop. C++ is built twice,
-with `g++ -O2 -std=c++20` and with `-O3 -march=native` (GCC 11.4: `std::views::filter`/`transform`/`iota`, no C++23 `enumerate`), and
-`enumerate` is written as `iota | transform`. Checksums agree across all variants. Single runs can be outliers: in one full replay the native `provedA` row read 3.55 ns; two immediate reruns of the same binary gave 1.20–1.22 ns (hand loop 2.85–2.90). One VM, not repeated across
-machines; round-to-round noise on this VM was up to 2× on single rows.
+`iter/Bench.lean`, `iter/bench.cpp` and `iter/ablate.cpp`, all run by `BENCH=1 ./replay.sh`: the same
+generated data, 1,000,000 items, a warm-up call, then batches of 20 calls (Lean: median of 5 batches; C++:
+median, min and max of 11). Two rounds; the README reports round 2. Each call varies one argument so the
+compiler cannot hoist it out of the timing loop. The C++ runs under `taskset -c 2` and is built twice, with
+`g++ -O2 -std=c++20` and with `-O3 -march=native` (GCC 11.4: `std::views::filter`/`transform`/`iota`, no
+C++23 `enumerate`; `enumerate` is `iota | transform`). Results are checked equal before timing. `Emp::name` is
+a `std::string_view`, so no variant copies strings. One 8-vCPU VM (Intel Xeon, 2.4 GHz); `perf` is blocked
+there (`perf_event_paranoid=4`), so no hardware counters, and Clang 14 cannot build GCC 11's `<ranges>`.
 
 ## Rerunning every check
 
 `./replay.sh` builds `iter/`, runs the audit, checks the theorem list, scans for `sorry`, runs `taskcheck`, the
-fixture replay and `check_c.py`, and exits 0 only if no row is unexpected. It needs only Lean 4.15.0 through
+fixture replay, `check_c.py`, the header freshness check and the printer fuzz, and exits 0 only if no row is unexpected. It needs only Lean 4.15.0 through
 `elan` (pinned in `iter/lean-toolchain`) and python3.
 
 ## History

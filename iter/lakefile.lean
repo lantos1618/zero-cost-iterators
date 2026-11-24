@@ -7,3 +7,4 @@ lean_lib TaskCore
 @[default_target] lean_exe taskcheck where root := `TaskCheck
 @[default_target] lean_exe bench where root := `Bench
 @[default_target] lean_exe gencpp where root := `GenCpp
+@[default_target] lean_exe fuzzcpp where root := `FuzzCpp

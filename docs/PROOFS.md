@@ -1,15 +1,19 @@
 # How the proofs work
 
-The result: Lean proves a rewritten record-summary loop equal to the `Iter` chain, and the C++ printed from it
-runs 2.2× faster than the hand-written C++ loop (`g++ -O2`, this VM, random data). The ablation at the end
-shows which step pays: the branch-free mask does. On sorted data ours is slower than the hand loop. This page
-explains why each rewrite is allowed, how each proof works, and what the measurements do and don't support.
+**Result.** Lean generates a C++ loop for the record summary below and proves it equal to the `Iter` chain.
+On rows in random order it is 2.9× faster than a plain hand loop at `g++ -O2` (1.30 vs 3.79 ns per row) and
+2.2× at `-O3 -march=native`. On sorted rows it is 1.1× faster than the hand loop at `-O2` but 1.3× slower
+than `std::views` (1.34 vs 1.04). The C++ printer and GCC are trusted; the printer is fuzzed against Lean.
+
+Measurements: one 8-vCPU VM (Intel Xeon, 2.4 GHz), g++ 11.4, pinned with `taskset -c 2`, 1M rows, median of
+11 batches of 20 calls, two rounds. `perf` is blocked on this VM, so every statement about branches below is
+inferred from timings on random vs sorted rows, not from hardware counters.
 
 ## The problem
 
-The pipeline, written the obvious way:
-
 ```cpp
+struct Emp { std::string_view name; u64 salary; bool active; };   // name is a view: no string copies
+
 Summ s;
 for (const Emp& e : es)
   if (e.active && e.salary >= minSal) {
@@ -18,29 +22,28 @@ for (const Emp& e : es)
   }
 ```
 
-Every row passes through one `if`. In the benchmark data about 60% of rows are kept, in random order, so the
-branch is hard to predict. The evidence is indirect, because `perf` is blocked on this VM: on the same rows
-sorted, the hand loop drops from 3.76 to 1.52 ns per row.
+About 60% of rows are kept. In random order the hand loop takes 3.79 ns per row; with the same rows sorted
+(inactive first, then by salary) it takes 1.49. That gap is what a branch-free loop can remove.
 
-A faster loop exists:
+The generated loop (`provedA` in `iter/gen/proved_gen.hpp`, printed by `SPipe.toCpp`):
 
 ```cpp
-// no branch: m is all ones if the row is kept, else 0
-std::uint64_t m = 0 - (std::uint64_t)(e.active & (e.salary >= minSal));
-cnt[j] += 1 & m;  tot[j] += pay & m;          // 4 independent accumulators, row i in lane i % 4
-// ...afterwards: add up the lanes, search forward for first, backward for last
+for (const Emp& e : es) {
+  bool k = (((std::uint64_t)e.active != 0) & (e.salary >= p0));
+  std::uint64_t m = 0 - (std::uint64_t)k;            // all ones if kept, else 0
+  cnt += 1 & m; tot += ((e.salary * p1) / 100ULL) & m;
+  fp = (k & (fp == nullptr)) ? &e : fp;              // first kept row
+  lp = k ? &e : lp;                                  // last kept row
+}
 ```
 
-GCC 11.4 does not make this change at `-O2` or `-O3 -march=native`; its output for the hand loop still
-branches. Clang 14 wasn't tested: it can't compile GCC 11's `<ranges>` header. Every step below is also legal
-C++ on `uint64_t`, so nothing stops a compiler from doing it. The point is that each step is a theorem here,
-not that only Lean could know it.
+Every step is legal C++ on `uint64_t`, so a compiler could do it; GCC 11.4 does not. The point is that each
+step here is a theorem, and the loop is printed from the pipeline rather than written by hand.
 
 ## Step 0: what "the pipeline" means
 
-`xs.iter |>.filter p |>.map f |>.foldl init step` is a fused loop, with no lists built along the way.
-`Iter.Denotes it l` says that the iterator `it` behaves exactly like the plain list `l`: for every monad,
-callback and start value, running `it` gives the same result as a plain `for` over `l`.
+`Iter.Denotes it l` says the iterator `it` behaves exactly like the list `l`: for every monad, callback and
+start value, running `it` gives the same result as a `for` over `l`.
 
 ```lean
 theorem denotes_array (a : Array α) : a.iter.Denotes a.toList
@@ -50,127 +53,127 @@ theorem Denotes.foldl  (h : it.Denotes l) (init : δ) (step : δ → α → δ) 
     it.foldl init step = l.foldl step init
 ```
 
-These compose. The fused chain therefore equals `((xs.toList.filter p).map f).foldl step init`, an ordinary
-list expression that ordinary algebra can work on. This is what links the fast loop to the API.
+These compose, so the fused chain equals `((xs.toList.filter p).map f).foldl step init`, a list expression
+that ordinary algebra can work on.
 
-## Step 1: split the running summary into four independent jobs
-
-`summary_split` (in `Iter/Rewrite.lean`):
+## Step 1: the mask (`sum_select`, `select_mask`)
 
 ```lean
-rows.foldl step ⟨0, 0, none, none⟩ =
-  ⟨rows.length, sumL (rows.map Prod.snd), rows.head?.map Prod.fst, rows.getLast?.map Prod.fst⟩
-```
-
-**Why it's true:** each field of `step` depends only on its own old value and the current row. `count` goes
-up by 1, `total` adds the pay, `first` is set once, and `last` is overwritten each time. So one fold over
-four fields is the same as four separate folds.
-
-**How it's proved:** a generalised lemma, `fold_step`, which works from any starting summary, by induction
-on `rows`. It needs `total + 0 = total` and associativity, which is why it takes an `AddLaws` argument.
-
-## Step 2: first and last are searches
-
-```lean
-theorem head_filter    : (l.filter p).head?    = l.find? p
-theorem getLast_filter : (l.filter p).getLast? = l.reverse.find? p
-```
-
-**Why:** the first kept row is the first row that passes `p`. A search can stop there, so `first` only reads
-up to the first kept row, and `last` is a backward search that also stops early. If no row is kept, each search
-reads every row, so in the worst case the split loop makes three passes instead of one.
-
-**How:** induction on `l`, splitting on whether `p x` is true.
-
-## Step 3: a filter inside a sum is a mask
-
-```lean
-theorem sum_select : sumL ((l.filter p).map f) = sumL (l.map fun x => if p x then f x else 0)
 theorem select_mask (b : Bool) (v : UInt64) : (v &&& (0 - if b then 1 else 0)) = if b then v else 0
 ```
 
-**Why:** dropping an item from a sum is the same as adding 0 in its place. In 64-bit arithmetic `0 - 1` is all
-ones, so `v & (0 - 1) = v` and `v & 0 = 0`. The `if` disappears, and so does the branch.
+In 64-bit arithmetic `0 - 1` is all ones, so `v & (0 - 1) = v` and `v & 0 = 0`. Proved on `BitVec`, which has
+exactly the wrap-around of C++ `uint64_t`. `sum_select` says a filtered sum equals a sum that adds 0 for
+dropped items (induction, using `0 + a = a`).
 
-**How:** `sum_select` is induction using `0 + a = a`. `select_mask` is checked on the 64-bit bit vectors,
-which have exactly the wrap-around behaviour of C++ `uint64_t`.
+## Step 2: one pass (`step1_filter`)
 
-## Step 4: several accumulators are allowed
-
-```lean
-theorem sum_lanes (h : AddLaws α) (k : Nat) (xs : List α) :
-    sumL (xs.foldl rot (List.replicate k 0)) = sumL xs
-```
-
-`rot` adds the next item to the front accumulator and moves that accumulator to the back. With `k` lanes,
-item `i` lands in lane `i % k`, as in the C++.
-
-**Why:** if `+` is associative and commutative, the sum can be regrouped and reordered any way you like.
-**How:** `sum_lanes_from` is the general statement, "the lanes sum to their start values plus the items", by
-induction over the items.
-
-This is the step that needs real knowledge about `+`. (The ablation below shows it doesn't make this loop
-faster; it is kept because the word sum uses it.) `UInt64` addition wraps around, and it is still
-associative and commutative. Lean proves this through `BitVec` (`u64Laws`). The same rewrite would be wrong
-for floating-point `+`, and Lean rules it out: `sum_lanes` needs an `AddLaws` proof, and none can be given for `Float`, whose `+` is
-not associative.
-
-## Putting it together: `fast_correct`
-
-In `Iter/Gen.lean`, pipelines are data: a small language of field expressions (`X`) and predicates (`Q`).
-`SPipe.run` is the ordinary `Iter` chain. `SPipe.fast` is what the printed C++ computes. The theorem:
+`SPipe.step1` is the loop body above, in Lean. A row is a `Row`, and `none` plays the role of `nullptr`:
 
 ```lean
-theorem fast_correct (q : SPipe) (lanes : Nat) (ps : List UInt64) (rows : Array (Row ν)) :
-    q.fast lanes ps rows = q.run ps rows := by
-  rw [SPipe.run, (((denotes_array rows).filter _).map _).foldl, summary_split u64Laws]   -- steps 0, 1
-  simp only [SPipe.fast, sel, select_mask, ..., sum_lanes natLaws, sum_lanes u64Laws,    -- steps 3, 4
-    ← sum_select u64Laws, ← sum_select natLaws, sumL_ones, head_filter, getLast_filter]  -- steps 3, 2
+⟨s.count + (if k then 1 else 0), s.total + sel k pay,
+ if k && s.first.isNone then some r else s.first, if k then some r else s.last⟩
 ```
 
-It holds for **every** pipeline in the language, every lane count and every input, not just the benchmark.
-`recPipe_gen` applies it to the benchmark's pipeline: `active != 0 & salary >= p0`, pay `salary * p1 / 100`.
+```lean
+theorem step1_filter : l.foldl (q.step1 ps) s =
+    ((l.filter keep).map fun r => (r, pay r)).foldl step s
+```
 
-The word-sum generator (`opt_correct`) follows the same pattern with one more fact, `sum_mul`: `Σ x·c = (Σ x)·c`
-in wrapping arithmetic, so the multiply runs once instead of once per item.
+**Why:** on a dropped row, `k` is false, so the count adds 0, the total adds `sel false pay = 0`, and first and
+last are unchanged: the step does nothing. On a kept row it is exactly the hand loop's step: `first` is set
+only if it was empty, `last` is overwritten. **How:** induction on `l`, splitting on `k`, and on whether
+`first` is empty.
+
+## Step 3: back to names (`summary_split`, `fast1_correct`)
+
+The loop tracks rows, the summary reports names. `summary_split` writes any running summary as
+`⟨length, sum, head?, getLast?⟩`. Applying it to both sides, the two agree field by field once rows are
+mapped to their names (`List.head?_map`, `List.getLast?_map`):
+
+```lean
+theorem fast1_correct (q : SPipe) (ps : List UInt64) (rows : Array (Row ν)) :
+    q.fast1 ps rows = q.run ps rows := by
+  rw [SPipe.run, (((denotes_array rows).filter _).map _).foldl, summary_split u64Laws, SPipe.fast1,
+    step1_filter]
+  simp only [summary_split u64Laws, List.length_map, List.map_map, Function.comp_def, List.head?_map,
+    List.getLast?_map, Option.map_map]
+```
+
+It holds for every pipeline in the record language and every input. `recPipe_gen` applies it to the
+benchmark's pipeline: keep `active != 0 & salary >= p0`, pay `salary * p1 / 100`.
+
+**The word sum** (`opt_correct`) uses the mask plus two more facts: `sum_lanes` (with associative,
+commutative `+`, item `j` can go to accumulator `j % k`; proved for `UInt64` via `BitVec`, and impossible
+for `Float`, which has no `AddLaws`) and `sum_mul` (`Σ x·c = (Σ x)·c`). It prints 8 lanes, chosen from an
+earlier timing; lane count was not ablated for the word sum.
+
+## What the languages can express
+
+| language | items | expressions | tests | shape |
+|---|---|---|---|---|
+| `Pipe` (words) | one `UInt64`, one parameter `k` | literals, `+ * ^ %` | `== <`, `&` | `filter → map → sum` |
+| `SPipe` (records) | word fields, word parameters | literals, `+ * /` | `!= 0`, `>=`, `&` | `filter → map → (count, total, first, last)` |
+
+Nothing else: no `take`, `enumerate` or user functions, no strings in expressions, no other terminals.
 
 ## Where the proof stops
 
 | step | status |
 |---|---|
 | `Iter` chain = list program | proved (`Denotes`) |
-| list program = split, masked, multi-lane loop | proved (`fast_correct`, `opt_correct`) |
-| that loop printed as C++ text | **trusted**: `SPipe.toCpp` / `Loop.toCpp` and the expression printers |
+| list program = one-pass masked loop (records), masked multi-lane loop (words) | proved (`fast1_correct`, `opt_correct`) |
+| that loop printed as C++ text | **trusted** (`SPipe.toCpp`, `Loop.toCpp`, about 60 lines), **fuzzed** |
 | C++ text → machine code | **trusted**: GCC |
-| count as `Nat` (Lean) vs `uint64_t` (C++) | agree when the row count is below 2^64, which holds on 64-bit targets |
-| 0 lanes | Lean allows it; the printer emits 1 lane, which gives the same sums |
+| count as `Nat` (Lean) vs `uint64_t` (C++) | agree below 2^64 rows |
+| 0 lanes | Lean allows it; the printer emits 1 lane, same sum; covered by the fuzz |
 | block search (`provedF`) | proved in Lean, C++ copied by hand, results checked |
 
-Two safety details the printer handles: Lean defines `x / 0 = 0` and `x % 0 = x`, but in C++ both are
-undefined, so the printer guards `/` and `%` unless the divisor is a nonzero literal. The filter is printed
-with `&` and never `&&`. Measured: the same masked loop with `&&` runs at 3.83 ns instead of 1.66, because GCC
-turns `&&` back into a branch.
+Printer details that matter: Lean defines `x / 0 = 0` and `x % 0 = x`, C++ leaves both undefined, so `/` and
+`%` are guarded unless the divisor is a nonzero literal. A missing field or parameter prints as `0ULL`, as
+Lean reads it. The filter is printed with `&`, never `&&` (measured below: `&&` costs 2×).
 
-## What actually makes it fast (ablation)
+**Fuzz** (`iter/FuzzCpp.lean`, rows `fuzz_cpp` and `fuzz_mutant` in `replay.sh`): 300 random word pipelines
+with 0–9 lanes and 300 random record pipelines, including division and modulo by zero and missing
+fields/parameters, each on inputs of length 0, 1, 5 and all. That is 7,200 results; the C++ is built with
+UBSan and its output must equal Lean's `Pipe.run` / `SPipe.run`. A planted bug in the first-row select must
+make the comparison fail. By hand, disabling the `/` and `%` zero guards was caught by UBSan. The fuzz
+checks the printer, not GCC on the benchmark binary; that binary is checked by `results_equal`.
 
-`iter/ablate.cpp` (run by `BENCH=1 ./replay.sh`) checks six variants against `handA` on random and sorted rows,
-then times them. ns per row, `g++ -O2`, 1M rows, one run on this VM:
+## What makes it fast (ablation)
+
+`iter/ablate.cpp` checks each variant against `handA` on random and sorted rows, then times it. ns per row,
+`g++ -O2`, medians of round 1 / round 2:
 
 | variant | random | sorted |
 |---|---|---|
-| `handA`: hand loop with `if` | 4.00 | 1.65 |
-| `hand_amp`: hand loop, `&` instead of `&&` | 4.42 | 1.76 |
-| `split_branchy`: split (steps 1–2), still `if` | 3.65 | 1.65 |
-| `split1_mask`: split + mask (steps 1–3), 1 lane | 1.66 | 2.13 |
-| `split1_andand`: same, `&&` in the mask | 3.83 | 1.50 |
-| `provedA`: split + mask + 4 lanes (steps 1–4), what we generate | 1.82 | 2.34 |
-| `mask_inline`: one pass, mask, first/last kept branch-free in the loop | **1.40** | **1.41** |
+| `handA`: hand loop with `if` and `&&` | 3.79 / 3.79 | 1.51 / 1.83 |
+| `hand_amp`: hand loop, `&` instead of `&&` | 4.29 / 4.26 | 1.53 / 1.85 |
+| `split_branchy`: count/total pass with `if`, then two searches | 3.80 / 3.47 | 1.47 / 1.62 |
+| `split_andand`: masked pass with `&&`, then two searches | 3.56 / 3.50 | 1.48 / 1.62 |
+| `split_mask`: masked pass, then two searches (our previous generated loop, 1 lane) | 1.62 / 1.79 | 1.99 / 2.29 |
+| `mask_ct`: the masked count/total pass alone | 1.62 / 1.71 | 1.60 / 1.61 |
+| `searches_only`: the two first/last searches alone | 0.00 / 0.00 | 0.38 / 0.40 |
+| **`provedA`**: one pass, what we generate now | **1.40 / 1.47** | **1.41 / 1.58** |
 
-What this shows:
-- **The mask is the win.** Removing the branch (step 3) takes 3.65 to 1.66. Splitting alone barely helps, and
-  4 lanes are slightly slower than 1 here.
-- **It depends on the data.** The win is from branch mispredictions. On sorted rows the branch is predictable,
-  and the hand loop beats what we generate.
-- **We don't generate the best loop yet.** `mask_inline` makes one pass and wins on both inputs. It is
-  hand-written and not yet proved. Its proof would need one more lemma: tracking first and last by index in
-  the same pass equals `head?` and `getLast?` of the filtered list.
+Batch spread (min–max of 11): `provedA` stayed within 8% of its median; single batches of other rows were up
+to 7× slower (`mask_ct`, round 2), which is why medians are reported. Round 2 of the sorted data ran 5–20%
+slower across every variant.
+
+What the table supports:
+- **The mask is the gain on random rows**: 3.47–3.80 with `if`, 1.62–1.79 with the mask, same structure
+  otherwise. Writing the mask with `&&` loses it (3.50–3.56).
+- **The previous design's sorted-row loss was its extra passes.** The masked pass costs the same on both
+  inputs (1.60–1.71). The two searches cost nothing on random rows (kept rows sit at both ends) and 0.38–0.40
+  on sorted rows (the first kept row is ~40% in). `split_mask` ≈ `mask_ct` + `searches_only` on both inputs.
+- **One pass removes that cost**: `provedA` is 1.40–1.58 on both inputs.
+
+Not explained, not investigated: why `std::views` is fastest on sorted rows (1.04–1.14 in the benchmark), why
+`&` makes the hand loop slower, and why at `-O3 -march=native` the hand loop takes the same time on sorted and
+random rows (2.86–2.97).
+
+## Earlier claims this replaced
+
+The first version of this page credited all four rewrites, and a 4-lane split loop, for a 2.2× gain. The
+ablation showed the split and the lanes added nothing or made things worse (4 lanes: 1.82 random, 2.34 sorted,
+against 1.66 / 2.13 for 1 lane). That loop is no longer generated; it is in the git history (`651384a`).

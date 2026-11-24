@@ -9,4 +9,4 @@ def main : IO Unit := do
     "#pragma once\n#include <cstddef>\n#include <cstdint>\n#include <vector>\n\n" ++
     (opt 8 wordPipe).toCpp "provedU" ++ "\n\n" ++
     "// Iter.Gen.recPipe_gen proves this loop equal to the running summary; needs Emp and Summ from the includer.\n" ++
-    recPipe.toCpp 4 2 "provedA" "Emp" ["e.salary", "(std::uint64_t)e.active"] ++ "\n")
+    recPipe.toCpp 2 "provedA" "Emp" ["e.salary", "(std::uint64_t)e.active"] ++ "\n")

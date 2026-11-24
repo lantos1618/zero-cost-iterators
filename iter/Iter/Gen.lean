@@ -209,69 +209,92 @@ def SPipe.run (q : SPipe) (ps : List UInt64) (rows : Array (Row ν)) : Summary �
   (rows.iter.filter (fun r => q.keep.eval ps r.f) |>.map (fun r => (r.label, q.pay.eval ps r.f))).foldl
     ⟨0, 0, none, none⟩ step
 
-/-- what the printed C++ computes: masked count and total over `lanes` accumulators, a forward search for the
-first kept row and a backward search for the last -/
-def SPipe.fast (q : SPipe) (lanes : Nat) (ps : List UInt64) (rows : Array (Row ν)) : Summary ν UInt64 :=
-  let keep := fun (r : Row ν) => q.keep.eval ps r.f
-  ⟨sumL ((rows.toList.map fun r => if keep r then 1 else 0).foldl rot (List.replicate lanes 0)),
-   sumL ((rows.toList.map fun r => sel (keep r) (q.pay.eval ps r.f)).foldl rot (List.replicate lanes 0)),
-   (rows.toList.find? keep).map (·.label),
-   (rows.toList.reverse.find? keep).map (·.label)⟩
+/-! ### one pass, branch-free
 
-theorem sumL_ones {σ : Type} : ∀ l : List σ, sumL (l.map fun _ => (1 : Nat)) = l.length
-  | [] => rfl
-  | _ :: xs => by rw [List.map_cons, sumL_cons natLaws, sumL_ones xs, List.length_cons, Nat.add_comm]
+The loop `SPipe.toCpp` prints: one pass, the kept test as a mask for count and total, and first / last as
+pointer selects (`fp = (k & !fp) ? &e : fp`), so no branch depends on the data. `Row` here is the C++ row
+pointer and `none` is `nullptr`. -/
 
-/-- the split summary loop computes the running summary, for every pipeline, lane count and input -/
-theorem fast_correct (q : SPipe) (lanes : Nat) (ps : List UInt64) (rows : Array (Row ν)) :
-    q.fast lanes ps rows = q.run ps rows := by
-  rw [SPipe.run, (((denotes_array rows).filter _).map _).foldl, summary_split u64Laws]
-  simp only [SPipe.fast, sel, select_mask, List.length_map, List.map_map, Function.comp_def,
-    List.head?_map, List.getLast?_map, Option.map_map, sum_lanes natLaws, sum_lanes u64Laws,
-    ← sum_select u64Laws, ← sum_select natLaws, sumL_ones, head_filter, getLast_filter]
+def SPipe.step1 (q : SPipe) (ps : List UInt64) (s : Summary (Row ν) UInt64) (r : Row ν) :
+    Summary (Row ν) UInt64 :=
+  let k := q.keep.eval ps r.f
+  ⟨s.count + (if k then 1 else 0), s.total + sel k (q.pay.eval ps r.f),
+   if k && s.first.isNone then some r else s.first, if k then some r else s.last⟩
+
+def SPipe.fast1 (q : SPipe) (ps : List UInt64) (rows : Array (Row ν)) : Summary ν UInt64 :=
+  let s := rows.toList.foldl (q.step1 ps) ⟨0, 0, none, none⟩
+  ⟨s.count, s.total, s.first.map (·.label), s.last.map (·.label)⟩
+
+/-- the one-pass step skips dropped rows and is the summary step on kept ones -/
+theorem step1_filter (q : SPipe) (ps : List UInt64) : ∀ (l : List (Row ν)) (s : Summary (Row ν) UInt64),
+    l.foldl (q.step1 ps) s =
+      ((l.filter fun r => q.keep.eval ps r.f).map fun r => (r, q.pay.eval ps r.f)).foldl step s
+  | [], _ => rfl
+  | r :: rs, s => by
+    have h0 : ∀ v, sel false v = 0 := fun v => by rw [sel, select_mask]; rfl
+    have h1 : ∀ v, sel true v = v := fun v => by rw [sel, select_mask]; rfl
+    cases hk : q.keep.eval ps r.f
+    · simp only [List.foldl_cons, List.filter_cons, hk, Bool.false_eq_true, ↓reduceIte]
+      rw [← step1_filter q ps rs]; congr 1
+      cases s; simp [SPipe.step1, hk, h0, add_zero u64Laws]
+    · simp only [List.foldl_cons, List.filter_cons, hk, ↓reduceIte, List.map_cons]
+      rw [step1_filter q ps rs]; congr 1
+      cases s with
+      | mk c t f l => cases f <;> simp [SPipe.step1, step, hk, h1]
+
+/-- the one-pass branch-free loop computes the running summary, for every pipeline and input -/
+theorem fast1_correct (q : SPipe) (ps : List UInt64) (rows : Array (Row ν)) :
+    q.fast1 ps rows = q.run ps rows := by
+  rw [SPipe.run, (((denotes_array rows).filter _).map _).foldl, summary_split u64Laws, SPipe.fast1,
+    step1_filter]
+  simp only [summary_split u64Laws, List.length_map, List.map_map, Function.comp_def, List.head?_map,
+    List.getLast?_map, Option.map_map]
 
 /-! ### printer (trusted) -/
 
-def X.toCpp (fields : List String) : X → String
-  | .fld i => fields.getD i "0"
-  | .prm i => s!"p{i}"
+/-- `fields[i]` / `params[i]` are the C++ for field / parameter `i`; a missing one is `0`, as in `X.eval` -/
+def X.toCpp (fields params : List String) : X → String
+  | .fld i => fields.getD i "0ULL"
+  | .prm i => params.getD i "0ULL"
   | .lit n => s!"{n}ULL"
-  | .add a b => s!"({a.toCpp fields} + {b.toCpp fields})"
-  | .mul a b => s!"({a.toCpp fields} * {b.toCpp fields})"
-  | .div a (.lit n) => if n == 0 then "0ULL" else s!"({a.toCpp fields} / {n}ULL)"
-  | .div a b => s!"(({b.toCpp fields}) == 0 ? 0ULL : {a.toCpp fields} / {b.toCpp fields})"
+  | .add a b => s!"({a.toCpp fields params} + {b.toCpp fields params})"
+  | .mul a b => s!"({a.toCpp fields params} * {b.toCpp fields params})"
+  | .div a (.lit n) => if n == 0 then "0ULL" else s!"({a.toCpp fields params} / {n}ULL)"
+  | .div a b => s!"(({b.toCpp fields params}) == 0 ? 0ULL : {a.toCpp fields params} / {b.toCpp fields params})"
 
-def Q.toCpp (fields : List String) : Q → String
-  | .ne0 a => s!"({a.toCpp fields} != 0)"
-  | .ge a b => s!"({a.toCpp fields} >= {b.toCpp fields})"
-  | .and p q => s!"({p.toCpp fields} & {q.toCpp fields})"
+def Q.toCpp (fields params : List String) : Q → String
+  | .ne0 a => s!"({a.toCpp fields params} != 0)"
+  | .ge a b => s!"({a.toCpp fields params} >= {b.toCpp fields params})"
+  | .and p q => s!"({p.toCpp fields params} & {q.toCpp fields params})"
 
-/-- C++ `name(rows, p0, p1, ...)`; `fields[i]` is the C++ expression for word field `i` of row `e`, and the
-includer defines `Row` with a `name` member and `Summ` with `count`, `total`, `first`, `last` -/
-def SPipe.toCpp (q : SPipe) (lanes nParams : Nat) (name rowType : String) (fields : List String) : String :=
-  let lanes := max lanes 1
-  let keep := q.keep.toCpp fields
-  let params := String.join ((List.range nParams).map fun i => s!", std::uint64_t p{i}")
-  let add := fun (lane : String) =>
-    s!"\{ const {rowType}& e = es[LANE_I]; std::uint64_t m = 0 - (std::uint64_t){keep}; cnt[{lane}] += 1 & m; tot[{lane}] += {q.pay.toCpp fields} & m; }"
+/-- C++ `name(rows, p0, p1, ...)` computing `SPipe.fast1`; `fields[i]` is the C++ expression for word field
+`i` of row `e`, and the includer defines the row type with a `name` member and `Summ` with `count`, `total`,
+`first`, `last` -/
+def SPipe.toCpp (q : SPipe) (nParams : Nat) (name rowType : String) (fields : List String) : String :=
+  let ps := (List.range nParams).map (s!"p{·}")
+  let params := String.join (ps.map (s!", std::uint64_t {·}"))
   String.intercalate "\n" [
     s!"__attribute__((noinline)) static Summ {name}(const std::vector<{rowType}>& es{params}) \{",
-    s!"  std::uint64_t cnt[{lanes}] = \{}, tot[{lanes}] = \{};",
-    "  std::size_t n = es.size(), i = 0;",
-    s!"  for (; i + {lanes} <= n; i += {lanes})",
-    s!"    for (std::size_t j = 0; j < {lanes}; ++j) {(add "j").replace "LANE_I" "i + j"}",
-    s!"  for (; i < n; ++i) {(add s!"i % {lanes}").replace "LANE_I" "i"}",
-    "  Summ s;",
-    s!"  for (std::size_t j = 0; j < {lanes}; ++j) \{ s.count += cnt[j]; s.total += tot[j]; }",
-    s!"  for (std::size_t j = 0; j < n; ++j) \{ const {rowType}& e = es[j]; if ({keep}) \{ s.first = e.name; break; } }",
-    s!"  for (std::size_t j = n; j-- > 0;) \{ const {rowType}& e = es[j]; if ({keep}) \{ s.last = e.name; break; } }",
+    "  std::uint64_t cnt = 0, tot = 0;",
+    s!"  const {rowType}* fp = nullptr;",
+    s!"  const {rowType}* lp = nullptr;",
+    s!"  for (const {rowType}& e : es) \{",
+    s!"    bool k = {q.keep.toCpp fields ps};",
+    "    std::uint64_t m = 0 - (std::uint64_t)k;",
+    s!"    cnt += 1 & m; tot += {q.pay.toCpp fields ps} & m;",
+    "    fp = (k & (fp == nullptr)) ? &e : fp;",
+    "    lp = k ? &e : lp;",
+    "  }",
+    "  Summ s; s.count = cnt; s.total = tot;",
+    "  if (fp) s.first = fp->name;",
+    "  if (lp) s.last = lp->name;",
     "  return s;",
     "}"]
 
 /-- the benchmark's record pipeline: keep `active != 0 & salary >= p0`, pay `salary * p1 / 100` -/
 def recPipe : SPipe := ⟨.and (.ne0 (.fld 1)) (.ge (.fld 0) (.prm 0)), .div (.mul (.fld 0) (.prm 1)) (.lit 100)⟩
 
-theorem recPipe_gen (ps : List UInt64) (rows : Array (Row ν)) : recPipe.fast 4 ps rows = recPipe.run ps rows :=
-  fast_correct recPipe 4 ps rows
+theorem recPipe_gen (ps : List UInt64) (rows : Array (Row ν)) : recPipe.fast1 ps rows = recPipe.run ps rows :=
+  fast1_correct recPipe ps rows
 
 end Iter.Gen

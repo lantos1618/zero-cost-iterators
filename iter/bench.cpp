@@ -107,12 +107,18 @@ NOINLINE Hit provedF(const std::vector<u64>& xs, u64 t) {
   return std::nullopt;
 }
 
+// same rows, inactive first, then by salary: the hand loop's branch becomes predictable
+static std::vector<Emp> sortedRows(std::vector<Emp> es) {
+  std::sort(es.begin(), es.end(), [](const Emp& a, const Emp& b) { return a.active != b.active ? a.active < b.active : a.salary < b.salary; });
+  return es;
+}
+
 template <class F>
 static void bench(const char* label, std::size_t n, int reps, F f) {
   volatile u64 warm = f(0); (void)warm;
   std::vector<long long> ts;
   u64 chk = 0;
-  for (int b = 0; b < 5; ++b) {
+  for (int b = 0; b < 11; ++b) {
     auto t0 = std::chrono::steady_clock::now();
     u64 acc = 0;
     for (int r = 0; r < reps; ++r) acc += f(r);
@@ -121,8 +127,9 @@ static void bench(const char* label, std::size_t n, int reps, F f) {
     chk = acc;
   }
   std::sort(ts.begin(), ts.end());
-  std::printf("BENCH %s median_ns_per_item_x100=%lld checksum=%llu\n", label,
-              ts[2] * 100 / (long long)(n * reps), (unsigned long long)chk);
+  auto per = [&](long long t) { return t * 100 / (long long)(n * reps); };
+  std::printf("BENCH %s median_ns_per_item_x100=%lld min=%lld max=%lld checksum=%llu\n", label, per(ts[5]),
+              per(ts.front()), per(ts.back()), (unsigned long long)chk);
 }
 
 int main(int argc, char** argv) {
@@ -134,6 +141,7 @@ int main(int argc, char** argv) {
   static const std::string_view names[] = {"ana", "bo", "cy", "di", "ed", "flo", "gus", "hal"};
   std::vector<Emp> es(n);
   for (std::size_t i = 0; i < n; ++i) es[i] = {names[i % 8], xs[i] % 200000, xs[i] % 5 != 0};
+  std::vector<Emp> sorted = sortedRows(es);
   u64 big = *std::max_element(xs.begin(), xs.end());
 
   auto same = [](Summ a, Summ b) { return a.count == b.count && a.total == b.total && a.first == b.first && a.last == b.last; };
@@ -142,7 +150,8 @@ int main(int argc, char** argv) {
             handF(xs, big) == viewsF(xs, big) && handF(xs, big) == eagerF(xs, big) && !viewsF(xs, big + 1) &&
             handU(xs, 1) == provedU(xs, 1) && handU(xs, 2) == provedU(xs, 2) && handU(xs, 7) == provedU(xs, 7) &&
             handF(xs, big) == provedF(xs, big) && handF(xs, xs[999]) == provedF(xs, xs[999]) && !provedF(xs, big + 1) &&
-            same(handA(es, 50000, 90), provedA(es, 50000, 90)) && same(handA(es, 250000, 90), provedA(es, 250000, 90));
+            same(handA(es, 50000, 90), provedA(es, 50000, 90)) && same(handA(es, 250000, 90), provedA(es, 250000, 90)) &&
+            same(handA(sorted, 50000, 90), viewsA(sorted, 50000, 90)) && same(handA(sorted, 50000, 90), provedA(sorted, 50000, 90));
   std::printf("BENCH cpp items=%zu results_equal=%s\n", n, ok ? "true" : "false");
 
   const int reps = 20;
@@ -157,6 +166,9 @@ int main(int argc, char** argv) {
     bench("cpp_viewsA", n, reps, [&](int r) { return viewsA(es, 50000 + r % 2, 90).total; });
     bench("cpp_eagerA", n, reps, [&](int r) { return eagerA(es, 50000 + r % 2, 90).total; });
     bench("cpp_provedA", n, reps, [&](int r) { return provedA(es, 50000 + r % 2, 90).total; });
+    bench("cpp_handA_sorted", n, reps, [&](int r) { return handA(sorted, 50000 + r % 2, 90).total; });
+    bench("cpp_viewsA_sorted", n, reps, [&](int r) { return viewsA(sorted, 50000 + r % 2, 90).total; });
+    bench("cpp_provedA_sorted", n, reps, [&](int r) { return provedA(sorted, 50000 + r % 2, 90).total; });
     bench("cpp_handF_miss", n, reps, [&](int r) { return hitVal(handF(xs, big + 1 + r)); });
     bench("cpp_viewsF_miss", n, reps, [&](int r) { return hitVal(viewsF(xs, big + 1 + r)); });
     bench("cpp_eagerF_miss", n, reps, [&](int r) { return hitVal(eagerF(xs, big + 1 + r)); });
