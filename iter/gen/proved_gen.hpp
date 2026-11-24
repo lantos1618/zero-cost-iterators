@@ -19,18 +19,21 @@ __attribute__((noinline)) static std::uint64_t provedU(const std::vector<std::ui
 
 // Iter.Gen.recPipe_gen proves this loop equal to the running summary; needs Emp and Summ from the includer.
 __attribute__((noinline)) static Summ provedA(const std::vector<Emp>& es, std::uint64_t p0, std::uint64_t p1) {
-  std::uint64_t cnt = 0, tot = 0;
-  const Emp* fp = nullptr;
-  const Emp* lp = nullptr;
-  for (const Emp& e : es) {
+  std::size_t i = 0, n = es.size();
+  for (; i < n; ++i) { const Emp& e = es[i]; if ((((std::uint64_t)e.active != 0) & (e.salary >= p0))) break; }
+  Summ s;
+  if (i == n) return s;
+  const Emp* fp = &es[i];
+  const Emp* lp = fp;
+  std::uint64_t cnt = 1, tot;
+  { const Emp& e = *fp; tot = ((e.salary * p1) / 100ULL); }
+  for (++i; i < n; ++i) {
+    const Emp& e = es[i];
     bool k = (((std::uint64_t)e.active != 0) & (e.salary >= p0));
     std::uint64_t m = 0 - (std::uint64_t)k;
     cnt += 1 & m; tot += ((e.salary * p1) / 100ULL) & m;
-    fp = (k & (fp == nullptr)) ? &e : fp;
     lp = k ? &e : lp;
   }
-  Summ s; s.count = cnt; s.total = tot;
-  if (fp) s.first = fp->name;
-  if (lp) s.last = lp->name;
+  s.count = cnt; s.total = tot; s.first = fp->name; s.last = lp->name;
   return s;
 }

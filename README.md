@@ -64,32 +64,37 @@ proves each loop equal to the `Iter` chain; `iter/Iter/Rewrite.lean` holds the r
 - `sum_select`, `select_mask`: the filter becomes a branch-free mask, `acc += v & -(keep ? 1 : 0)`;
 - `sum_lanes`: `+` on 64-bit words is associative and commutative, so a sum can use `k` independent accumulators;
 - `sum_mul`: `map (· * 2)` before a sum is one multiplication after it;
-- `step1_filter`, `summary_split`: a running (count, total, first, last) summary can be kept in one pass with
-  no data-dependent branch: masked count and total, and first / last as pointer selects;
+- `step1_filter`, `step1_dropWhile`, `step1_step2`, `summary_split`: a running (count, total, first, last)
+  summary is a search for the first kept row, then one pass with masked count and total and `last` as a
+  pointer select;
 - `find_blocks`: a search can test a block of 32 for "any match" without branching.
 
 ns per item, 1,000,000 items, median of 11 batches (batch min–max in [docs/PROOFS.md](docs/PROOFS.md)):
 
 | pipeline | data | `-O2`: hand | views | **ours** | `-O3 -march=native`: hand | views | **ours** |
 |---|---|---|---|---|---|---|---|
-| filter → map → sum, words | random | 0.76 | 3.33 | **0.68** | 0.76 | 3.15 | **0.59** |
-| filter → map → summary, records | random | 3.79 | 4.11 | **1.30** | 2.87 | 3.97 | **1.32** |
-| filter → map → summary, records | sorted | 1.49 | **1.04** | 1.34 | 2.86 | **1.14** | 1.39 |
-| enumerate → find, no match | random | **0.29** | 0.44 | 0.40 | 0.30 | 0.30 | **0.23** |
+| filter → map → sum, words | random | 1.30* | 3.21 | **0.68** | 0.80 | 3.46 | **0.60** |
+| filter → map → summary, records | random | 3.86 | 4.13 | **1.36** | 2.98 | 4.43 | **1.38** |
+| filter → map → summary, records | sorted | 1.52 | **1.19** | **1.19** | 2.86 | **1.20** | 1.21 |
+| enumerate → find, no match | random | 0.48 | **0.31** | 0.55 | 0.32 | 0.33 | **0.25** |
 
 "hand" is a plain C++ `for` loop with `if`, "views" is `std::views::filter | transform`, both g++ 11.4, on
-one VM pinned to one core. Every variant returns the same results.
+one VM pinned to one core, second of two rounds. Every variant returns the same results. *This batch was
+noisy (min 1.09); round 1 gave 0.78.
 
-- **Records, random order:** ours is 2.9× faster than the hand loop at `-O2` and 2.2× at `-O3`. The ablation
+- **Records, random order:** ours is 2.8× faster than the hand loop at `-O2` and 2.2× at `-O3`. The ablation
   shows the gain is the branch-free mask (the hand loop's `if` is taken for ~60% of rows in random order).
-- **Records, sorted:** `std::views` is fastest, 1.2–1.3× faster than ours. We have not found out why.
+- **Records, sorted:** a tie with `std::views` (1.19 vs 1.19, 1.21 vs 1.20). The views loop skips the pay
+  arithmetic on dropped rows with a predictable branch; ours now skips the dropped prefix with a search, but
+  pays for the arithmetic on every row after it. If dropped rows were spread through the middle, `std::views`
+  would win; this was not measured.
 - **Words:** 1.1–1.3× over the hand loop. **Search:** a loss at `-O2`, a win at `-O3`.
 - **"Faster than hand-written C++"** means faster than one plain hand loop. A person can write our loop by
   hand; the difference is that ours is generated and proved.
 - **What the languages can express:** word pipelines `filter → map → sum` over the item and one parameter,
   with `+ * ^ %`, `== <` and `&`; record pipelines `filter → map → summary` over word fields and parameters,
   with `+ * /`, `!= 0 >=` and `&`. No other adapters, no strings, no user functions.
-- **Proved vs trusted:** the loops are proved equal to the `Iter` chains (`opt_correct`, `fast1_correct`). The
+- **Proved vs trusted:** the loops are proved equal to the `Iter` chains (`opt_correct`, `fast2_correct`). The
   C++ printer (about 60 lines) and GCC are trusted. The printer is fuzzed: 7,200 results from 600 random
   pipelines, compiled with UBSan, must match Lean exactly, and a planted printer bug must be caught. The block
   search is still copied by hand and only result-checked.
@@ -119,8 +124,8 @@ Partly. Honest accounting:
   move this goal forward. It is now on the `archive` branch.
 
 Worth it as a small verified library, a precise answer to "is fusion free, and when?", and a source of
-proved loops printed as C++: 2.2–2.9× faster than a hand loop on the record summary in random order, 1.1–1.3×
-on the word sum, and slower than `std::views` on sorted records. The algebra is well known; what is new is
+proved loops printed as C++: 2.2–2.8× faster than a hand loop on the record summary in random order, tied
+with `std::views` on sorted records, and 1.1–1.3× faster on the word sum. The algebra is well known; what is new is
 that the loops are generated from the `Iter` chain with a proof. Not worth it as a way to make Lean code fast.
 
 ## Try it

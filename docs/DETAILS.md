@@ -132,10 +132,12 @@ checks the committed `gen/proved_gen.hpp` is exactly what it prints.
 
 `SPipe` is `filter keep → map (label, pay) → running (count, total, first, last)` over rows of word fields,
 with expressions built from fields, parameters, literals, `+`, `*`, `/`, `!= 0`, `>=` and `&`; a missing field
-or parameter reads as 0. `SPipe.fast1` is what the printed loop computes: one pass, masked count and total,
-first and last kept as row pointers with selects. `step1_filter` shows each step skips dropped rows and is
-the summary step on kept ones; `fast1_correct` proves `fast1 = run`, the `Iter` chain, and `recPipe_gen`
-instantiates it for the benchmark. `SPipe.toCpp` prints it. The count is a `Nat` in Lean and a `uint64_t` in
+or parameter reads as 0. `SPipe.fast1` is one pass, masked count and total, first and last kept as row
+pointers with selects; `step1_filter` shows each step skips dropped rows and is the summary step on kept ones,
+and `fast1_correct` proves `fast1 = run`, the `Iter` chain. `SPipe.fast2` is what the printed loop computes:
+search for the first kept row, then the same pass without tracking `first` (`step2`). `step1_dropWhile` (the
+dropped prefix changes nothing) and `step1_step2` (once `first` is set the two steps agree) give
+`fast2_correct : fast2 = run`; `recPipe_gen` instantiates it for the benchmark. `SPipe.toCpp` prints it. The count is a `Nat` in Lean and a `uint64_t` in
 C++, which agree for any array that fits in memory.
 
 **Printer fuzzing (`iter/FuzzCpp.lean`).** 300 random word pipelines (0–9 lanes) and 300 random record

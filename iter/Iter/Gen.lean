@@ -250,6 +250,70 @@ theorem fast1_correct (q : SPipe) (ps : List UInt64) (rows : Array (Row ν)) :
   simp only [summary_split u64Laws, List.length_map, List.map_map, Function.comp_def, List.head?_map,
     List.getLast?_map, Option.map_map]
 
+/-! ### search for the first kept row, then one pass
+
+`fast2` skips the dropped prefix with an ordinary search, takes the first kept row as `first`, and runs the
+one-pass loop over the rest without tracking `first` (`step2`). -/
+
+def SPipe.step2 (q : SPipe) (ps : List UInt64) (s : Summary (Row ν) UInt64) (r : Row ν) :
+    Summary (Row ν) UInt64 :=
+  let k := q.keep.eval ps r.f
+  ⟨s.count + (if k then 1 else 0), s.total + sel k (q.pay.eval ps r.f), s.first, if k then some r else s.last⟩
+
+def SPipe.fast2 (q : SPipe) (ps : List UInt64) (rows : Array (Row ν)) : Summary ν UInt64 :=
+  match rows.toList.dropWhile (fun r => !q.keep.eval ps r.f) with
+  | [] => ⟨0, 0, none, none⟩
+  | r :: rest =>
+    let s := rest.foldl (q.step2 ps) ⟨1, q.pay.eval ps r.f, some r, some r⟩
+    ⟨s.count, s.total, s.first.map (·.label), s.last.map (·.label)⟩
+
+theorem step1_drop (q : SPipe) (ps : List UInt64) (s : Summary (Row ν) UInt64) (r : Row ν)
+    (h : q.keep.eval ps r.f = false) : q.step1 ps s r = s := by
+  have h0 : ∀ v, sel false v = 0 := fun v => by rw [sel, select_mask]; rfl
+  cases s; simp [SPipe.step1, h, h0, add_zero u64Laws]
+
+/-- dropped rows before the first kept one change nothing -/
+theorem step1_dropWhile (q : SPipe) (ps : List UInt64) : ∀ (l : List (Row ν)) (s : Summary (Row ν) UInt64),
+    l.foldl (q.step1 ps) s = (l.dropWhile fun r => !q.keep.eval ps r.f).foldl (q.step1 ps) s
+  | [], _ => rfl
+  | r :: rs, s => by
+    cases hk : q.keep.eval ps r.f
+    · simp only [List.foldl_cons, List.dropWhile_cons, hk, Bool.not_false, ↓reduceIte, step1_drop q ps s r hk]
+      exact step1_dropWhile q ps rs s
+    · simp [List.dropWhile_cons, hk]
+
+/-- once `first` is set, `step1` is `step2` -/
+theorem step1_step2 (q : SPipe) (ps : List UInt64) (f : Row ν) : ∀ (l : List (Row ν)) (s : Summary (Row ν) UInt64),
+    s.first = some f → l.foldl (q.step1 ps) s = l.foldl (q.step2 ps) s
+  | [], _, _ => rfl
+  | r :: rs, s, h => by
+    have e : q.step1 ps s r = q.step2 ps s r := by
+      cases s; simp only at h; subst h; simp [SPipe.step1, SPipe.step2]
+    rw [List.foldl_cons, List.foldl_cons, e]
+    exact step1_step2 q ps f rs _ (by simp [SPipe.step2, h])
+
+theorem dropWhile_head {α : Type} {p : α → Bool} :
+    ∀ {l : List α} {r : α} {rest : List α}, l.dropWhile p = r :: rest → p r = false
+  | [], _, _, h => by simp at h
+  | x :: xs, r, rest, h => by
+    by_cases hx : p x
+    · simp only [List.dropWhile_cons, hx, ↓reduceIte] at h; exact dropWhile_head h
+    · simp only [List.dropWhile_cons, hx, Bool.false_eq_true, ↓reduceIte, List.cons.injEq] at h
+      obtain ⟨rfl, -⟩ := h; simpa using hx
+
+theorem fast2_correct (q : SPipe) (ps : List UInt64) (rows : Array (Row ν)) :
+    q.fast2 ps rows = q.run ps rows := by
+  rw [← fast1_correct, SPipe.fast1, step1_dropWhile, SPipe.fast2]
+  have h1 : ∀ v, sel true v = v := fun v => by rw [sel, select_mask]; rfl
+  generalize hd : rows.toList.dropWhile (fun r => !q.keep.eval ps r.f) = d
+  cases d with
+  | nil => rfl
+  | cons r rest =>
+    have hk : q.keep.eval ps r.f = true := by simpa using dropWhile_head hd
+    simp only [List.foldl_cons]
+    rw [step1_step2 q ps r rest _ (by simp [SPipe.step1, hk])]
+    simp [SPipe.step1, hk, h1, u64Laws.zero_add]
+
 /-! ### printer (trusted) -/
 
 /-- `fields[i]` / `params[i]` are the C++ for field / parameter `i`; a missing one is `0`, as in `X.eval` -/
@@ -267,7 +331,7 @@ def Q.toCpp (fields params : List String) : Q → String
   | .ge a b => s!"({a.toCpp fields params} >= {b.toCpp fields params})"
   | .and p q => s!"({p.toCpp fields params} & {q.toCpp fields params})"
 
-/-- C++ `name(rows, p0, p1, ...)` computing `SPipe.fast1`; `fields[i]` is the C++ expression for word field
+/-- C++ `name(rows, p0, p1, ...)` computing `SPipe.fast2`; `fields[i]` is the C++ expression for word field
 `i` of row `e`, and the includer defines the row type with a `name` member and `Summ` with `count`, `total`,
 `first`, `last` -/
 def SPipe.toCpp (q : SPipe) (nParams : Nat) (name rowType : String) (fields : List String) : String :=
@@ -275,26 +339,29 @@ def SPipe.toCpp (q : SPipe) (nParams : Nat) (name rowType : String) (fields : Li
   let params := String.join (ps.map (s!", std::uint64_t {·}"))
   String.intercalate "\n" [
     s!"__attribute__((noinline)) static Summ {name}(const std::vector<{rowType}>& es{params}) \{",
-    "  std::uint64_t cnt = 0, tot = 0;",
-    s!"  const {rowType}* fp = nullptr;",
-    s!"  const {rowType}* lp = nullptr;",
-    s!"  for (const {rowType}& e : es) \{",
+    "  std::size_t i = 0, n = es.size();",
+    s!"  for (; i < n; ++i) \{ const {rowType}& e = es[i]; if ({q.keep.toCpp fields ps}) break; }",
+    "  Summ s;",
+    "  if (i == n) return s;",
+    s!"  const {rowType}* fp = &es[i];",
+    s!"  const {rowType}* lp = fp;",
+    "  std::uint64_t cnt = 1, tot;",
+    s!"  \{ const {rowType}& e = *fp; tot = {q.pay.toCpp fields ps}; }",
+    "  for (++i; i < n; ++i) {",
+    s!"    const {rowType}& e = es[i];",
     s!"    bool k = {q.keep.toCpp fields ps};",
     "    std::uint64_t m = 0 - (std::uint64_t)k;",
     s!"    cnt += 1 & m; tot += {q.pay.toCpp fields ps} & m;",
-    "    fp = (k & (fp == nullptr)) ? &e : fp;",
     "    lp = k ? &e : lp;",
     "  }",
-    "  Summ s; s.count = cnt; s.total = tot;",
-    "  if (fp) s.first = fp->name;",
-    "  if (lp) s.last = lp->name;",
+    "  s.count = cnt; s.total = tot; s.first = fp->name; s.last = lp->name;",
     "  return s;",
     "}"]
 
 /-- the benchmark's record pipeline: keep `active != 0 & salary >= p0`, pay `salary * p1 / 100` -/
 def recPipe : SPipe := ⟨.and (.ne0 (.fld 1)) (.ge (.fld 0) (.prm 0)), .div (.mul (.fld 0) (.prm 1)) (.lit 100)⟩
 
-theorem recPipe_gen (ps : List UInt64) (rows : Array (Row ν)) : recPipe.fast1 ps rows = recPipe.run ps rows :=
-  fast1_correct recPipe ps rows
+theorem recPipe_gen (ps : List UInt64) (rows : Array (Row ν)) : recPipe.fast2 ps rows = recPipe.run ps rows :=
+  fast2_correct recPipe ps rows
 
 end Iter.Gen

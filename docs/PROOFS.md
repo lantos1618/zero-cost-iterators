@@ -1,9 +1,9 @@
 # How the proofs work
 
 **Result.** Lean generates a C++ loop for the record summary below and proves it equal to the `Iter` chain.
-On rows in random order it is 2.9× faster than a plain hand loop at `g++ -O2` (1.30 vs 3.79 ns per row) and
-2.2× at `-O3 -march=native`. On sorted rows it is 1.1× faster than the hand loop at `-O2` but 1.3× slower
-than `std::views` (1.34 vs 1.04). The C++ printer and GCC are trusted; the printer is fuzzed against Lean.
+On rows in random order it is 2.8× faster than a plain hand loop at `g++ -O2` (1.36 vs 3.86 ns per row) and
+2.2× at `-O3 -march=native`. On sorted rows it ties `std::views` (1.19 vs 1.19 at `-O2`, 1.21 vs 1.20 at `-O3`)
+and beats the hand loop by 1.3× and 2.4×. The C++ printer and GCC are trusted; the printer is fuzzed against Lean.
 
 Measurements: one 8-vCPU VM (Intel Xeon, 2.4 GHz), g++ 11.4, pinned with `taskset -c 2`, 1M rows, median of
 11 batches of 20 calls, two rounds. `perf` is blocked on this VM, so every statement about branches below is
@@ -25,14 +25,16 @@ for (const Emp& e : es)
 About 60% of rows are kept. In random order the hand loop takes 3.79 ns per row; with the same rows sorted
 (inactive first, then by salary) it takes 1.49. That gap is what a branch-free loop can remove.
 
-The generated loop (`provedA` in `iter/gen/proved_gen.hpp`, printed by `SPipe.toCpp`):
+The generated loop (`provedA` in `iter/gen/proved_gen.hpp`, printed by `SPipe.toCpp`), abridged:
 
 ```cpp
-for (const Emp& e : es) {
-  bool k = (((std::uint64_t)e.active != 0) & (e.salary >= p0));
+for (; i < n; ++i) { const Emp& e = es[i]; if (KEEP(e)) break; }   // search for the first kept row
+if (i == n) return s;
+const Emp* fp = &es[i]; const Emp* lp = fp; cnt = 1; tot = PAY(*fp);
+for (++i; i < n; ++i) {
+  bool k = KEEP(e);
   std::uint64_t m = 0 - (std::uint64_t)k;            // all ones if kept, else 0
-  cnt += 1 & m; tot += ((e.salary * p1) / 100ULL) & m;
-  fp = (k & (fp == nullptr)) ? &e : fp;              // first kept row
+  cnt += 1 & m; tot += PAY(e) & m;
   lp = k ? &e : lp;                                  // last kept row
 }
 ```
@@ -87,6 +89,8 @@ only if it was empty, `last` is overwritten. **How:** induction on `l`, splittin
 
 ## Step 3: back to names (`summary_split`, `fast1_correct`)
 
+(`fast1` is the one-pass loop from Step 2 run over all rows; Step 4 turns it into the printed loop.)
+
 The loop tracks rows, the summary reports names. `summary_split` writes any running summary as
 `⟨length, sum, head?, getLast?⟩`. Applying it to both sides, the two agree field by field once rows are
 mapped to their names (`List.head?_map`, `List.getLast?_map`):
@@ -102,6 +106,21 @@ theorem fast1_correct (q : SPipe) (ps : List UInt64) (rows : Array (Row ν)) :
 
 It holds for every pipeline in the record language and every input. `recPipe_gen` applies it to the
 benchmark's pipeline: keep `active != 0 & salary >= p0`, pay `salary * p1 / 100`.
+
+## Step 4: search first (`step1_dropWhile`, `step1_step2`, `fast2_correct`)
+
+`fast2` searches for the first kept row `r` (`dropWhile`), starts the summary at `⟨1, pay r, r, r⟩`, and runs
+`step2` (the Step 2 body without the `first` update) over the rest.
+
+- `step1_dropWhile`: `l.foldl step1 s = (l.dropWhile (!keep ·)).foldl step1 s`, because a dropped row is a
+  no-op (`step1_drop`, the false case of Step 2).
+- `step1_step2`: once `first = some f`, `step1` and `step2` agree, and `step2` keeps `first`. Induction.
+- `fast2_correct : q.fast2 ps rows = q.run ps rows`: rewrite with `fast1_correct` and `step1_dropWhile`; the
+  first row left is kept (`dropWhile_head`), so one `step1` gives `⟨1, pay r, r, r⟩`, then `step1_step2`.
+
+**Why it helps:** the search loop does no pay arithmetic and has a branch that is predictable when dropped rows
+come in a run. On the sorted rows the first 40% are dropped, and the ablation's one-pass loop went from
+1.41–1.58 to 1.18–1.23 ns per row. On random rows the first row is usually kept, and nothing changes.
 
 **The word sum** (`opt_correct`) uses the mask plus two more facts: `sum_lanes` (with associative,
 commutative `+`, item `j` can go to accumulator `j % k`; proved for `UInt64` via `BitVec`, and impossible
@@ -122,7 +141,7 @@ Nothing else: no `take`, `enumerate` or user functions, no strings in expression
 | step | status |
 |---|---|
 | `Iter` chain = list program | proved (`Denotes`) |
-| list program = one-pass masked loop (records), masked multi-lane loop (words) | proved (`fast1_correct`, `opt_correct`) |
+| list program = search + masked loop (records), masked multi-lane loop (words) | proved (`fast2_correct`, `opt_correct`) |
 | that loop printed as C++ text | **trusted** (`SPipe.toCpp`, `Loop.toCpp`, about 60 lines), **fuzzed** |
 | C++ text → machine code | **trusted**: GCC |
 | count as `Nat` (Lean) vs `uint64_t` (C++) | agree below 2^64 rows |
@@ -136,7 +155,7 @@ Lean reads it. The filter is printed with `&`, never `&&` (measured below: `&&` 
 **Fuzz** (`iter/FuzzCpp.lean`, rows `fuzz_cpp` and `fuzz_mutant` in `replay.sh`): 300 random word pipelines
 with 0–9 lanes and 300 random record pipelines, including division and modulo by zero and missing
 fields/parameters, each on inputs of length 0, 1, 5 and all. That is 7,200 results; the C++ is built with
-UBSan and its output must equal Lean's `Pipe.run` / `SPipe.run`. A planted bug in the first-row select must
+UBSan and its output must equal Lean's `Pipe.run` / `SPipe.run`. A planted bug in the last-row select must
 make the comparison fail. By hand, disabling the `/` and `%` zero guards was caught by UBSan. The fuzz
 checks the printer, not GCC on the benchmark binary; that binary is checked by `results_equal`.
 
@@ -147,33 +166,35 @@ checks the printer, not GCC on the benchmark binary; that binary is checked by `
 
 | variant | random | sorted |
 |---|---|---|
-| `handA`: hand loop with `if` and `&&` | 3.79 / 3.79 | 1.51 / 1.83 |
-| `hand_amp`: hand loop, `&` instead of `&&` | 4.29 / 4.26 | 1.53 / 1.85 |
-| `split_branchy`: count/total pass with `if`, then two searches | 3.80 / 3.47 | 1.47 / 1.62 |
-| `split_andand`: masked pass with `&&`, then two searches | 3.56 / 3.50 | 1.48 / 1.62 |
-| `split_mask`: masked pass, then two searches (our previous generated loop, 1 lane) | 1.62 / 1.79 | 1.99 / 2.29 |
-| `mask_ct`: the masked count/total pass alone | 1.62 / 1.71 | 1.60 / 1.61 |
-| `searches_only`: the two first/last searches alone | 0.00 / 0.00 | 0.38 / 0.40 |
-| **`provedA`**: one pass, what we generate now | **1.40 / 1.47** | **1.41 / 1.58** |
+| `handA`: hand loop with `if` and `&&` | 4.24 / 4.00 | 2.02 / 1.51 |
+| `hand_amp`: hand loop, `&` instead of `&&` | 4.65 / 4.35 | 2.56 / 1.52 |
+| `split_branchy`: count/total pass with `if`, then two searches | 3.58 / 3.58 | 1.55 / 1.47 |
+| `split_andand`: masked pass with `&&`, then two searches | 3.61 / 3.53 | 1.52 / 1.47 |
+| `split_mask`: masked pass, then two searches (an earlier generated loop, 1 lane) | 1.70 / 1.62 | 2.03 / 1.98 |
+| `mask_ct`: the masked count/total pass alone | 1.69 / 1.61 | 1.60 / 1.59 |
+| `searches_only`: the two first/last searches alone | 0.00 / 0.00 | 0.38 / 0.38 |
+| `provedA` before Step 4 (`fast1`: one pass, earlier run) | 1.40 / 1.47 | 1.41 / 1.58 |
+| **`provedA`**: search + one pass, what we generate now | **1.41 / 1.36** | **1.23 / 1.18** |
 
-Batch spread (min–max of 11): `provedA` stayed within 8% of its median; single batches of other rows were up
-to 7× slower (`mask_ct`, round 2), which is why medians are reported. Round 2 of the sorted data ran 5–20%
-slower across every variant.
+Batch spread (min–max of 11): `provedA` stayed within 10% of its median; single batches of other rows were up
+to 4.7× slower (`handA`, round 1 sorted), which is why medians are reported.
 
 What the table supports:
-- **The mask is the gain on random rows**: 3.47–3.80 with `if`, 1.62–1.79 with the mask, same structure
-  otherwise. Writing the mask with `&&` loses it (3.50–3.56).
-- **The previous design's sorted-row loss was its extra passes.** The masked pass costs the same on both
-  inputs (1.60–1.71). The two searches cost nothing on random rows (kept rows sit at both ends) and 0.38–0.40
-  on sorted rows (the first kept row is ~40% in). `split_mask` ≈ `mask_ct` + `searches_only` on both inputs.
-- **One pass removes that cost**: `provedA` is 1.40–1.58 on both inputs.
+- **The mask is the gain on random rows**: 3.58 with `if`, 1.61–1.70 with the mask, same structure
+  otherwise. Writing the mask with `&&` loses it (3.53–3.61).
+- **Extra passes cost on sorted rows.** The masked pass costs the same on both inputs (1.59–1.69). The two
+  searches cost nothing on random rows (kept rows sit at both ends) and 0.38 on sorted rows (the first kept row
+  is 40% in). `split_mask` ≈ `mask_ct` + `searches_only` on both inputs.
+- **Skipping the dropped prefix pays on sorted rows**: the generated loop drops from 1.41–1.58 (one pass) to
+  1.18–1.23 (search, then one pass), and is unchanged on random rows.
 
-Not explained, not investigated: why `std::views` is fastest on sorted rows (1.04–1.14 in the benchmark), why
-`&` makes the hand loop slower, and why at `-O3 -march=native` the hand loop takes the same time on sorted and
-random rows (2.86–2.97).
+Not explained, not investigated: why `&` makes the hand loop slower, and why at `-O3 -march=native` the hand
+loop takes the same time on sorted and random rows (2.86–2.98). Not measured: rows where the dropped ones sit in
+the middle, where `std::views` skips them and ours does not.
 
 ## Earlier claims this replaced
 
 The first version of this page credited all four rewrites, and a 4-lane split loop, for a 2.2× gain. The
 ablation showed the split and the lanes added nothing or made things worse (4 lanes: 1.82 random, 2.34 sorted,
-against 1.66 / 2.13 for 1 lane). That loop is no longer generated; it is in the git history (`651384a`).
+against 1.66 / 2.13 for 1 lane). That loop is no longer generated; it is in the git history (`651384a`). The one-pass loop that replaced
+it (`f74f4e5`) lost to `std::views` on sorted rows; Step 4 is the fix.
