@@ -46,7 +46,7 @@ def declare (names : Array String) : Except String (List String) := do
 | record summary = search + any mix of masked and branchy rows, for every switch policy | `fast3_correct` | proved |
 | the printed C++ loop structure (lanes, rounds, tail, `seen`, search) computes those loops | `printed_correct`, `printed_count`, `printed_red`, `printed_summary` | proved for all but the switching loop |
 | the branchy and range-for word printers compute the same loops (so the tuner only changes speed) | `printed_range`, `printed_range_count` (same model as `cRun` for the branchy step) | proved |
-| every printed expression (`E`, `P`, `X`, `Q`, masks, min/max identities) is a C syntax tree whose meaning is the Lean value and is never undefined (`/` and `%` by 0 are guarded) | `E.toC_eval`, `P.toC_eval`, `X.toC_eval`, `Q.toC_eval`, `word_step`, `red_step`, `rec_step` (`Iter/CExpr.lean`) | **new:** proved |
+| every printed expression (`E`, `P`, `X`, `Q`, masks, min/max identities) is a C syntax tree whose meaning is the Lean value and is never undefined (`/` and `%` by 0 are guarded) | `E.toC_eval`, `P.toC_eval`, `X.toC_eval`, `Q.toC_eval`, `word_step`, `red_step`, `rec_step` (`Iter/CExpr.lean`) | proved |
 | tree → text (one fixed rule per node, `CE.print`); each printed loop line means its Lean step; switching printer | 43,200-result fuzz under UBSan, 3 planted bugs caught | trusted, fuzzed |
 | C++ → machine code | — | trusted (GCC) |
 | speed; which candidate the tuner picks | — | measured only, below |
@@ -73,6 +73,18 @@ behind across runs: the tuner picks the range-for loop, whose text matches the h
 is most likely code alignment or noise. Treat differences under about 5% as noise on this VM. The wins
 come from branch-free masks where the keep test is unpredictable. Hardware counters are blocked here, so that
 cause is inferred from timings.
+
+**From proof to C++**
+
+```
+Iter chain ──Denotes──▶ list program ──opt_correct, fast*_correct──▶ fast loop
+fast loop ──printed_*──▶ model of the printed loop structure
+expressions ──*.toC_eval──▶ C expression tree (CE), never undefined
+CE ──CE.print (trusted, 1 rule per node)──▶ C++ text ──GCC (trusted)──▶ machine code
+```
+
+Everything left of "trusted" is a Lean theorem. The trusted rest is small and fuzzed: the text rule for each
+tree node, that each printed loop line means its Lean step, the switching record printer, and GCC.
 
 ## What "zero cost" means here
 
@@ -221,7 +233,8 @@ the first bad line in a file manifest.
 |---|---|
 | `iter/Iter/` | the library: `Basic` (iterators and their proofs), `More` (more adapters, `zip`, terminals), `Group` (`groupFold`), `Cost` (cost model), `Rewrite` (proved loop rewrites) |
 | `iter/Iter/Gen.lean`, `iter/GenCpp.lean`, `iter/gen/` | proved word and record loop generators, their C++ printers, and the generated header |
-| `iter/Iter/CLoop.lean` | the printed word loop's C++ control flow modelled and proved equal to the proved loop |
+| `iter/Iter/CExpr.lean` | a small C expression tree (`CE`): 64-bit operators, `?:`, casts; its meaning (`/`, `%` by 0 undefined) and its one-rule-per-node printer |
+| `iter/Iter/CLoop.lean` | the printed loops' C++ control flow modelled and proved equal to the proved loops; the printed expression trees proved equal to the Lean values |
 | `iter/FuzzCpp.lean` | differential fuzz of the C++ printers against Lean |
 | `iter/bench.cpp`, `iter/ablate.cpp` | C++ benchmark (hand, `std::views`, staged, ours) and the record-summary ablation |
 | `iter/` | the `tasks` CLI, its generated-input checker, the axiom audit, `check_c.py`, and the Lean and C++ benchmarks (`Bench.lean`, `bench.cpp`) |
