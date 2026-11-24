@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
-# i8red7 replay: .loop() front door + five scalar signed-INT8 reductions (dot, L1, squared L2, Hamming, one-sided L1) under one gate
-# and one shared Lean induction. Raw outputs + exit codes -> results_i8red7/*.txt; summary on stdout (tee it).
+# Library/kernel suite (run by ../replay.sh): Bend laws and the Bend->Lean link, the C<->IR exact gate for the
+# signed-INT8 reductions, the Pipe IR and generated code, the typed .view() model (adapters, APL models, UTF-8,
+# lambda subset, groupFold, generic types), negative controls, native call sites and a structural check of the
+# emitted C. Raw outputs + exit codes -> results/*.txt; summary on stdout.
 # Needs: bend 2.0.40 (~/.bend/bin/bend), elan + leanprover/lean4:v4.15.0, gcc, clang, python3, ~5 GiB free RAM.
+# Also needs bendlink/base.bend.pinned (a copy of ~/.bend/bend2/base.bend, not committed) and ~/i8dot-bend-r5.
 set -u
 cd "$(dirname "$0")"
 export PATH=$HOME/.elan/bin:$PATH BEND_NO_TELEMETRY=1
 BEND=${BEND:-$HOME/.bend/bin/bend}
 UNEXPECTED=0; TOTAL=0
-R=$PWD/results_i8red7; rm -rf "$R"; mkdir -p "$R"
+R=$PWD/results; rm -rf "$R"; mkdir -p "$R"
 sec() { printf '\n==================== %s\n' "$1"; }
 run() { local n=$1 d=$2 want=$3; shift 3; (cd "$d" && "$@") > "$R/$n.txt" 2>&1; local s=$?
   echo "exit=$s" >> "$R/$n.txt"; TOTAL=$((TOTAL+1)); local tag=ok; [ "$s" = "$want" ] || { tag=UNEXPECTED; UNEXPECTED=$((UNEXPECTED+1)); }
   printf '%-40s exit=%-3s want=%-3s %-10s %s\n' "$n" "$s" "$want" "$tag" "$(grep -m1 -E 'REJECT:|VERDICT|PROOFS|fails=|error|differ' "$R/$n.txt" | cut -c1-110)"; }
-C=$PWD/bridge/.lake/build/bin/i8check
+C=$PWD/../bridge/.lake/build/bin/i8check
 POS="pos l1 l2 ham osl"
 
 sec "versions"
-$BEND version; (cd bridge && lean --version); gcc --version | head -1; clang --version | head -1; python3 --version; uname -sm
+$BEND version; (cd ../bridge && lean --version); gcc --version | head -1; clang --version | head -1; python3 --version; uname -sm
 
 sec "emit with gen.py (trusted) and compare with the committed emitted files"
 T=$(mktemp -d)
@@ -34,17 +37,17 @@ for v in l1 l2 ham osl; do run bend_${v}_PROOF_RED variants/$v 0 $BEND PROOF_RED
 sec "trusted Bend->Lean translation: regenerate and require byte-identical Lean"
 (cd bendlink && ./bend2lean.py kernel base.bend.pinned ../kernel.bend $T/BendKernel.lean && ./bend2lean.py progs $T/BendProgs.lean $(for v in pos wrap buf l1 l2 ham osl; do printf '%s=../variants/%s/prog.bend ' $v $v; done))
 run base_pinned_same . 0 cmp bendlink/base.bend.pinned $HOME/.bend/bend2/base.bend
-run translate_kernel_same . 0 cmp $T/BendKernel.lean bridge/Bridge/BendKernel.lean
-run translate_progs_same . 0 cmp $T/BendProgs.lean bridge/Bridge/BendProgs.lean
+run translate_kernel_same . 0 cmp $T/BendKernel.lean ../bridge/Bridge/BendKernel.lean
+run translate_progs_same . 0 cmp $T/BendProgs.lean ../bridge/Bridge/BendProgs.lean
 (cd bendlink && ./bend2lean.py progs $T/BendGen.lean $(for v in dot l1 l2 ham osl qz7; do printf 'g%s=../gen7/%s/prog.bend ' $v $v; done)) > /dev/null
-run translate_gen7_progs_same . 0 cmp $T/BendGen.lean bridge/Pipe/BendGen.lean
+run translate_gen7_progs_same . 0 cmp $T/BendGen.lean ../bridge/Pipe/BendGen.lean
 
 sec "Lean build (checker + all proofs) and axiom audit"
-run lean_build bridge 0 lake build
-run lean_audit bridge 0 lake env lean Audit.lean
-echo "audited theorems: $(grep -c '^#print' bridge/Audit.lean)"; grep -oE "\[[^]]*\]|does not depend on any axioms" $R/lean_audit.txt | sort | uniq -c
-run audit_covers_every_theorem . 0 sh -c "[ \$(grep -c '^#print' bridge/Audit.lean) = \$(cat bridge/Bridge/Proofs.lean bridge/Bridge/BendLink.lean bridge/Pipe/Core.lean bridge/Pipe/Facts.lean bridge/Pipe/GenLink.lean | grep -cE '^\s*(private )?theorem ') ]"
-run no_sorry . 1 grep -rnwE "sorry|admit|native_decide|axiom" bridge/Bridge bridge/Pipe bridge/PipeGen.lean
+run lean_build ../bridge 0 lake build
+run lean_audit ../bridge 0 lake env lean Audit.lean
+echo "audited theorems: $(grep -c '^#print' ../bridge/Audit.lean)"; grep -oE "\[[^]]*\]|does not depend on any axioms" $R/lean_audit.txt | sort | uniq -c
+run audit_covers_every_theorem . 0 sh -c "[ \$(grep -c '^#print' ../bridge/Audit.lean) = \$(cat ../bridge/Bridge/Proofs.lean ../bridge/Bridge/BendLink.lean ../bridge/Pipe/Core.lean ../bridge/Pipe/Facts.lean ../bridge/Pipe/GenLink.lean | grep -cE '^\s*(private )?theorem ') ]"
+run no_sorry . 1 grep -rnwE "sorry|admit|native_decide|axiom" ../bridge/Bridge ../bridge/Pipe ../bridge/PipeGen.lean
 
 sec "the one executable gate on the actual emitted files"
 for v in $POS; do run gate_exact_$v . 0 $C exact variants/$v/i8dot.c variants/$v/prog.bend; run gate_match_$v . 0 $C match variants/$v/i8dot.c variants/$v/prog.bend; done
@@ -115,8 +118,8 @@ negctl() { local name=$1 var=$2 sedexpr=$3 N=$T/neg_$1; mkdir -p $N/$var
   cp variants/$var/prog.bend variants/$var/PROOF_RED.bend $N/$var/; cp $N/kernel.bend $N/$var/kernel.bend
   run neg_${name}_bend_${var}_law_still_passes $N/$var 0 $BEND PROOF_RED.bend --verdict
   (cd bendlink && ./bend2lean.py kernel base.bend.pinned $N/kernel.bend $N/BendKernel.lean) > /dev/null
-  run neg_${name}_lean_differs . 1 cmp -s $N/BendKernel.lean bridge/Bridge/BendKernel.lean
-  cp -a bridge $N/bridge; cp $N/BendKernel.lean $N/bridge/Bridge/BendKernel.lean
+  run neg_${name}_lean_differs . 1 cmp -s $N/BendKernel.lean ../bridge/Bridge/BendKernel.lean
+  cp -a ../bridge $N/bridge; cp $N/BendKernel.lean $N/bridge/Bridge/BendKernel.lean
   run neg_${name}_link_build_fails $N/bridge 1 lake build Bridge.BendLink
   grep -m1 -oE "BendLink.lean:[0-9]+:[0-9]+: [a-z ]+" $R/neg_${name}_link_build_fails.txt; rm -rf $N/bridge; }
 negctl zsub l1 's/Z{Nat.add(p, m), Nat.add(n, q)}/Z{Nat.add(p, q), Nat.add(n, m)}/'
@@ -137,14 +140,14 @@ for o in dot l1 l2 ham osl qz7; do gcc -O2 -c -o $T/$o.o gen7/$o/i8dot.c; echo "
 rm -f native/t_*
 
 sec "i8red7: .loop() front door -> lowered one-loop IR -> emitted C + Bend (fresh), compared with committed gen7"
-PG=$PWD/bridge/.lake/build/bin/pipegen
+PG=$PWD/../bridge/.lake/build/bin/pipegen
 run pipegen_run . 0 $PG $T/gen7
 cat $R/pipegen_run.txt
 CTL="l1_drop_abs l1_abs_to_sq l1_extra_sq dot_to_sub dot_extra_abs ham_swap_order ham_mul_zip osl_to_abs osl_twice l2_to_mul"
 for k in dot l1 l2 ham osl qz7; do run pipegen_${k}_same . 0 sh -c "cmp $T/gen7/$k/i8dot.c gen7/$k/i8dot.c && cmp $T/gen7/$k/prog.bend gen7/$k/prog.bend"; done
 for k in $CTL; do run pipegen_ctl_${k}_same . 0 sh -c "cmp $T/gen7/controls/$k/i8dot.c gen7/controls/$k/i8dot.c && cmp $T/gen7/controls/$k/prog.bend gen7/controls/$k/prog.bend"; done
 run gen7_hash_lock gen7 0 sha256sum -c SHA256SUMS
-run generation_reads_no_old_IR . 1 grep -nE "posIR|l1IR|l2IR|hamIR|oslIR|wrapIR|\.json|readFile" bridge/Pipe/Core.lean bridge/Pipe/Emit.lean bridge/Pipe/Chains.lean bridge/PipeGen.lean
+run generation_reads_no_old_IR . 1 grep -nE "posIR|l1IR|l2IR|hamIR|oslIR|wrapIR|\.json|readFile" ../bridge/Pipe/Core.lean ../bridge/Pipe/Emit.lean ../bridge/Pipe/Chains.lean ../bridge/PipeGen.lean
 ctr() { run contract_$1_$2 . 0 sh -c "awk -v l='$1:' '\$1==l{f=1;n=0} f{n++; if(n==4){print; exit}}' $R/pipegen_run.txt | grep -q ': $2\$'"; }
 for k in dot l1 l2 ham osl qz7 ham_swap_order osl_twice; do ctr $k OK; done
 for k in l1_drop_abs l1_abs_to_sq l1_extra_sq dot_to_sub dot_extra_abs ham_mul_zip osl_to_abs l2_to_mul; do ctr $k FAIL; done
@@ -176,9 +179,65 @@ run gate7_gen_hamC_vs_gen_oslprog . 3 $C exact gen7/ham/i8dot.c gen7/osl/prog.be
 sed 's/^def prog()/def prog2()/' gen7/l1/prog.bend > $T/tamper_g7.bend; run gate7_gen_l1prog_tampered . 4 $C exact gen7/l1/i8dot.c $T/tamper_g7.bend
 
 sec "source-chain controls: ill-typed chains must not elaborate (exit 1); the positive must (exit 0)"
-run chain_type_ok_positive bridge 0 lake env lean ../pipe_controls/ok_positive.lean
+run chain_type_ok_positive ../bridge 0 lake env lean ../kernels/pipe_controls/ok_positive.lean
 for f in ty_missing_zip ty_map_before_zip ty_missing_terminal ty_stage_after_terminal ty_two_zips ty_terminal_first ty_double_terminal ty_unsupported_callback; do
-  run chain_$f bridge 1 lake env lean ../pipe_controls/$f.lean; done
+  run chain_$f ../bridge 1 lake env lean ../kernels/pipe_controls/$f.lean; done
+
+sec "i8red8: Vw stream model (view / fuse / parallelize), APL models, lambda subset, UTF-8: axiom audit"
+VA=$R/vw_audit.txt
+run vw_audit ../bridge 0 lake env lean VwAudit.lean
+grep -E "^Vw theorems audited" $VA; grep -oE "\[[^]]*\]$" $VA | sort | uniq -c
+run vw_audit_covers_every_theorem . 0 sh -c 'm=0; for n in $(cat ../bridge/Vw/*.lean | grep -oE "^\s*(private )?theorem [^ ]+" | awk "{print \$NF}"); do grep -qE "^AUDIT (.*\.)?$n Vw" '"$VA"' || { echo MISSING $n; m=1; }; done; echo "declared=$(cat ../bridge/Vw/*.lean | grep -cE "^\s*(private )?theorem ")"; exit $m'
+run vw_no_sorry . 1 grep -rnwE "sorry|admit|native_decide|axiom" ../bridge/Vw ../bridge/Vw.lean ../bridge/VwTest.lean
+run vw_no_maxheartbeats_zero . 1 grep -rn "maxHeartbeats 0" ../bridge/Vw
+
+sec "i8red8: .view() entry point -> existing Pipe IR -> emitter -> exact gate (fresh pipegen output in \$T/gen7/view)"
+grep -E "^view (entry|refusal)" $R/pipegen_run.txt
+for k in dot l1 l2 ham osl; do
+  run view_${k}_bytes_eq_loop_and_gen7 . 0 sh -c "cmp $T/gen7/view/$k/i8dot.c gen7/$k/i8dot.c && cmp $T/gen7/view/$k/prog.bend gen7/$k/prog.bend"
+  run view_${k}_gate_exact . 0 $C exact $T/gen7/view/$k/i8dot.c $T/gen7/view/$k/prog.bend
+  run view_${k}_inprocess_gate . 0 sh -c "awk '/^view entry $k:/{f=1} f&&/in-process exact gate/{print; exit}' $R/pipegen_run.txt | grep -q 'PASS (term = lower chain)'"; done
+for k in dot_no_fuse dot_seed5; do run view_refusal_$k . 0 grep -q "view refusal $k: REFUSED as expected" $R/pipegen_run.txt; done
+run view_dotC_vs_l1prog . 3 $C exact $T/gen7/view/dot/i8dot.c gen7/l1/prog.bend
+run view_lean_positive ../bridge 0 lake env lean ../kernels/view_controls/ok_view_positive.lean
+for f in ty_view_map_after_terminal ty_view_mapfn_before_zip ty_view_lambda_as_stage false_apl_truncating_zip false_apl_minus_left_fold false_apl_mask_drop false_unfused_c_lowering false_parallel_sub; do
+  run view_ctl_$f ../bridge 1 lake env lean ../kernels/view_controls/$f.lean; done
+
+sec "i8red8: actual Bend on the APL reference laws (apl_bend/AplView.bend) and its mutants"
+run bend_apl_check apl_bend 0 $BEND AplView.bend
+run bend_apl_verdict apl_bend 0 $BEND AplView.bend --verdict
+run bend_apl_def_count . 0 sh -c "grep -cE '^def ' apl_bend/AplView.bend; grep -oE '^def [a-z_]+\([^)]*\) -> \{' apl_bend/AplView.bend | wc -l"
+for f in reassoc minus_eq mask_drop scan_exclusive all_drop_pred dot_add_zip; do
+  run bend_apl_neg_$f apl_bend/neg 1 $BEND $f.bend
+  run bend_apl_neg_${f}_verdict apl_bend/neg 1 $BEND $f.bend --verdict; done
+
+sec "i8red8: runtime tests (finite, not proof): UTF-8 vs Lean runtime, sort/groupBy/distinct vs independent refs, lambda C"
+VT=$PWD/../bridge/.lake/build/bin/vwtest
+run vwtest . 0 $VT $T
+cat $R/vwtest.txt
+for cc in "gcc -O2 -Wall -Werror" "clang -O2 -Wall -Werror" "gcc -O1 -fsanitize=undefined -fno-sanitize-recover=all" "clang -O1 -fsanitize=undefined -fno-sanitize-recover=all"; do
+  tag=$(echo "$cc" | tr -c 'a-zA-Z0-9\n' '_')
+  run lam_c_$tag . 0 sh -c "$cc -std=c11 -o $T/lam_test $T/lam_test.c && $T/lam_test"; done
+
+sec "i8red9: generic .view() (Push/Group/GroupCtl in the Vw audit above); Lean controls"
+run gen_lean_positive ../bridge 0 lake env lean ../kernels/view_controls9/ok_generic.lean
+for f in false_gf_reset false_gf_front false_gf_adjacent false_gf_par_accepted false_br_chunk_lawful false_br_reassoc false_swap_stages; do
+  run gen_ctl_$f ../bridge 1 lake env lean ../kernels/view_controls9/$f.lean; done
+run gen_no_sorry . 1 grep -rnwE "sorry|admit|native_decide|axiom" ../bridge/GenDemo.lean view_controls9
+run gen_theorems_listed . 0 sh -c 'for n in push_fold push_trace push_one push_fold_capture foldPath_eq gInsK_eq groupFold_correct groupFold_state groupFold_ok groupFold_refused groupFold_fused_loop foldl_fused_loop; do grep -qE "^AUDIT (.*\.)?$n Vw[^ ]* \[" '"$VA"' || { echo MISSING $n; exit 1; }; grep -E "^AUDIT (.*\.)?$n Vw" '"$VA"'; done'
+
+sec "i8red9: actual Bend on groupFold laws (group_bend/GroupFold.bend) and its mutants"
+run bend_group_check group_bend 0 $BEND GroupFold.bend
+run bend_group_verdict group_bend 0 $BEND GroupFold.bend --verdict
+for f in reset_law reset_generic front_law front_bracket_eq cross_key reset_inequality_inverted; do
+  run bend_group_neg_$f group_bend/neg 1 $BEND $f.bend
+  run bend_group_neg_${f}_verdict group_bend/neg 1 $BEND $f.bend --verdict; done
+
+sec "i8red9: native compiled generic call sites (finite tests, not proof) + emitted-C structure"
+run gendemo_check . 0 ../bridge/.lake/build/bin/gendemo check
+cat $R/gendemo_check.txt
+run spec_check_emitted_c . 0 ./check_spec.py ../bridge/.lake/build/ir/GenDemo.c
+run gendemo_bench_smoke . 0 ../bridge/.lake/build/bin/gendemo bench 20000 5
 
 sec "summary"
 echo "TOTAL=$TOTAL UNEXPECTED=$UNEXPECTED"
