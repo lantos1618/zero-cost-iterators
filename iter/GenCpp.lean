@@ -1,6 +1,6 @@
 import Iter
 /-! Prints `gen/proved_gen.hpp`: the C++ for `Iter.Gen.opt 8 wordPipe` and `Iter.Gen.recPipe`, proved
-equal to their chains by `Iter.Gen.wordPipe_gen`, `Iter.Gen.wordPipe_count`, `Iter.Gen.wordPipe_max`, `Iter.Gen.recPipe_gen` and `Iter.Gen.recPipe_adapt`. `replay.sh` checks the committed header is what this prints. -/
+equal to their chains by `Iter.Gen.wordPipe_gen`, `Iter.Gen.wordPipe_count`, `Iter.Gen.wordPipe_max`, `Iter.Gen.wordPipe_nodiv*`, `Iter.Gen.recPipe_gen` and `Iter.Gen.recPipe_adapt`. `replay.sh` checks the committed header is what this prints. -/
 open Iter.Gen
 
 def main : IO Unit := do
@@ -13,8 +13,11 @@ def main : IO Unit := do
     cands "provedU" wordPipe ++ "\n\n" ++
     "// Iter.Gen.wordPipe_count proves these loops equal to filter -> count.\n" ++
     cands "provedC" wordPipe.countPipe ++ "\n\n" ++
-    "// Iter.Gen.wordPipe_max proves this loop equal to filter -> map -> max?.\n" ++
-    wordPipe.toCppRed .max 4 "provedMax" ++ "\n\n" ++
+    "// Iter.Gen.wordPipe_max and wordPipe_nodiv_max prove these loops equal to filter -> map -> max?.\n" ++
+    "struct RedCand { const char* tag; std::optional<std::uint64_t> (*f)(const std::vector<std::uint64_t>&, std::uint64_t); };\n\n" ++
+    wordPipe.toCppRed .max 4 "provedMax_m4" ++ "\n\n" ++ wordPipe.nodiv.toCppRed .max 4 "provedMax_dm4" ++ "\n\n" ++
+    wordPipe.nodiv.toCppRed .max 1 "provedMax_dm1" ++ "\n\n" ++
+    "static const RedCand provedMax_cands[] = {{\"m4\", &provedMax_m4}, {\"dm4\", &provedMax_dm4}, {\"dm1\", &provedMax_dm1}};\n\n" ++
     "// Iter.Gen.recPipe_gen proves this loop equal to the running summary; needs Emp and Summ from the includer.\n" ++
     recPipe.toCpp 2 "provedA" "Emp" fs ++ "\n\n" ++
     "// Iter.Gen.recPipe_adapt proves this loop equal to the running summary for every masked/branchy choice.\n" ++
@@ -22,9 +25,12 @@ def main : IO Unit := do
 where
   fs := ["e.salary", "(std::uint64_t)e.active"]
   cands (base : String) (q : Pipe) : String :=
-    let cs := [1, 2, 4, 8].flatMap fun l => [(false, l), (true, l)]
-    let tag := fun (b : Bool) (l : Nat) => s!"{if b then "b" else "m"}{l}"
-    let tags := cs.map (fun (b, l) => tag b l) ++ ["rb", "rm"]
-    "\n\n".intercalate (cs.map fun (b, l) => (opt l q).toCpp s!"{base}_{tag b l}" b) ++ "\n\n" ++
-      (opt 1 q).toCppRange s!"{base}_rb" ++ "\n\n" ++ (opt 1 q).toCppRange s!"{base}_rm" false ++ "\n\n" ++
+    let cs := [false, true].flatMap fun d => [1, 2, 4, 8].flatMap fun l => [(d, false, l), (d, true, l)]
+    let pd := fun (d : Bool) => if d then "d" else ""
+    let tag := fun (d b : Bool) (l : Nat) => s!"{pd d}{if b then "b" else "m"}{l}"
+    let qq := fun (d : Bool) => if d then q.nodiv else q
+    let tags := cs.map (fun (d, b, l) => tag d b l) ++ ["rb", "rm", "drb", "drm"]
+    "\n\n".intercalate (cs.map fun (d, b, l) => (opt l (qq d)).toCpp s!"{base}_{tag d b l}" b) ++ "\n\n" ++
+      "\n\n".intercalate ([false, true].map fun d =>
+        (opt 1 (qq d)).toCppRange s!"{base}_{pd d}rb" ++ "\n\n" ++ (opt 1 (qq d)).toCppRange s!"{base}_{pd d}rm" false) ++ "\n\n" ++
       s!"static const WordCand {base}_cands[] = \{{", ".intercalate (tags.map fun t => s!"\{\"{t}\", &{base}_{t}}")}};"

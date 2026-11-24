@@ -62,12 +62,13 @@ pipeline's correctness proof is one line.
 | zero cost, in the cost model: 0 intermediate allocations, ≤ 1 read per item, same callback calls as the staged program; 3 broken versions rejected | `lower_allocs`, `lower_pulls_le`, `lower_calls`, `mut_*` | proved (model only) |
 | word `filter → map → sum` = masked multi-lane loop | `opt_correct` | proved |
 | word `count`, `min?`, `max?` = masked lane loops | `count_correct`, `red_correct` | proved |
+| `x % d == 0` (odd `d`) = `x * inverse(d) < (2^64 - 1) / d + 1`, so the filter has no divide and can vectorise | `nodiv_ok`, `P.nodiv_eval`, `wordPipe_nodiv*` | proved |
 | record summary = search + one masked pass | `fast1_correct`, `fast2_correct` | proved |
 | record summary = search + any mix of masked and branchy rows, for every switch policy | `fast3_correct` | proved |
-| the printed C++ loop structure (lanes, rounds, tail, `seen`, search) computes those loops | `printed_correct`, `printed_count`, `printed_red`, `printed_summary` | proved for all but the switching loop |
+| the printed C++ loop structure (lanes, rounds, tail, `seen`, search) computes those loops | `printed_correct`, `printed_count`, `printed_red`, `printed_summary`, `printed_adapt` | proved, including the switching loop for every block size, window and threshold |
 | the branchy and range-for word printers compute the same loops (so the tuner only changes speed) | `printed_range`, `printed_range_count` (same model as `cRun` for the branchy step) | proved |
 | every printed expression (`E`, `P`, `X`, `Q`, masks, min/max identities) is a C syntax tree whose meaning is the Lean value and is never undefined (`/` and `%` by 0 are guarded) | `E.toC_eval`, `P.toC_eval`, `X.toC_eval`, `Q.toC_eval`, `word_step`, `red_step`, `rec_step` (`Iter/CExpr.lean`) | proved |
-| tree → text (one fixed rule per node, `CE.print`); each printed loop line means its Lean step; switching printer | 43,200-result fuzz under UBSan, 3 planted bugs caught | trusted, fuzzed |
+| tree → text (one fixed rule per node, `CE.print`); each printed loop line means its Lean step | 43,200-result fuzz under UBSan, 3 planted bugs caught | trusted, fuzzed |
 | C++ → machine code | — | trusted (GCC) |
 | speed; which candidate the tuner picks | — | measured only, below |
 
@@ -104,7 +105,7 @@ CE ──CE.print (trusted, 1 rule per node)──▶ C++ text ──GCC (truste
 ```
 
 Everything left of "trusted" is a Lean theorem. The trusted rest is small and fuzzed: the text rule for each
-tree node, that each printed loop line means its Lean step, the switching record printer, and GCC.
+tree node, that each printed loop line means its Lean step, and GCC.
 
 ## What "zero cost" means here
 
@@ -159,10 +160,10 @@ each rewrite. Earlier runs in this README disagreed with each other, so the scor
 - **Proved vs trusted:** the loops are proved equal to the `Iter` chains (`opt_correct`, `fast2_correct`,
   `fast3_correct`, `count_correct`, `red_correct`). The loop structure the printers emit (lane rounds, inner loop, tail, lane fold, `seen`; the
   record search and masked pass) is modelled loop by loop in `iter/Iter/CLoop.lean` and proved equal too
-  (`printed_correct`, `printed_count`, `printed_red`, `printed_summary`). Every printed expression is built as a C syntax tree
+  (`printed_correct`, `printed_count`, `printed_red`, `printed_summary`, `printed_adapt`). Every printed expression is built as a C syntax tree
   (`iter/Iter/CExpr.lean`) whose meaning is proved equal to the Lean value, with no undefined `/` or `%`
   (`E.toC_eval`, `P.toC_eval`, `X.toC_eval`, `Q.toC_eval`). Still trusted: the tree-to-text rule per node,
-  that each printed loop line means its Lean step, the switching record printer, and GCC.
+  that each printed loop line means its Lean step, and GCC.
   The printers are fuzzed: 43,200 results from random loops (each word pipeline as masked, branchy and range-for sum and count, `min?` and
   `max?`), record ones with random block size, window and switch threshold, compiled with
   UBSan, must match Lean exactly. Planted bugs in the masked and branchy bodies and in the `min` mask must be caught, and inverting
@@ -180,17 +181,22 @@ Each claim has a cheap test that would break it.
 | zero cost in the model | write a wasteful lowering that the cost theorems accept | the 3 planted ones (extra list, double test, no early exit) are rejected |
 | zero cost in compiled Lean | time a chain against its hand loop | **already broken** for `enumerate`, `drop`, `dropWhile`, `zip`: Lean boxes the counter (1.2–7× slower); holds for `filter → map → fold` |
 | the printed C++ computes what Lean proved | plant a printer bug and see if anything notices | 43,200 fuzz results under UBSan; all 3 planted bugs caught |
-| generated C++ is no more than 5% slower than the faster of a plain and a branch-free hand loop | `sh iter/falsify.sh`: g++ 11 and 12, clang 15, `-O2` and `-O3 -march=native`, and GCC profile-guided builds | **broken in 5 of 56 rows, in both of two runs** (below) |
+| generated C++ is no more than 5% slower than the fastest hand loop: plain `if`, branch-free, and hand-written AVX2 where the build allows it | `sh iter/falsify.sh`: g++ 11 and 12, clang 15, `-O2` and `-O3 -march=native`, and GCC profile-guided builds | **broken in 7 of 56 rows** (below); no wrong results |
 
-`falsify.sh` rows that broke in both runs (ns per row; "best hand" is the faster hand loop):
+`falsify.sh` rows that broke (ns per item; "best hand" is the fastest hand loop, "AVX2" is in `iter/common.hpp`):
 
 | build | pipeline | best hand | ours | ours / best hand |
 |---|---|---:|---:|---:|
-| GCC 11, profile-guided | records, random | 1.40 | 3.97–4.01 | 2.8× slower |
-| GCC 11, profile-guided | records, mixed | 1.35–1.40 | 2.52–2.61 | 1.9× slower |
-| GCC 12 `-O2` | max | 0.73–0.74 | 0.84–0.85 | 1.15× slower |
-| GCC 12 `-O2` | find, no match | 0.31 | 0.34 | 1.10× slower |
-| clang 15 `-O3 -march=native` | records, random | 1.33 | 1.48–1.49 | 1.12× slower |
+| GCC 11, profile-guided | records, random | 1.36 (branch-free) | 3.93 | 2.9× slower |
+| GCC 11, profile-guided | records, mixed | 1.36 (branch-free) | 2.55 | 1.9× slower |
+| GCC 11 and 12 `-O3 -march=native` | max | 0.54–0.60 (AVX2) | 0.66–1.16 | 1.2–1.9× slower |
+| GCC 11 and 12 `-O3 -march=native` | sum | 0.39–0.41 (AVX2) | 0.44–0.46 | 1.1× slower |
+| clang 15 `-O3 -march=native` | records, random | 1.33 (branch-free) | 1.46 | 1.1× slower |
+
+With clang 15 `-O3 -march=native`, ours beats the hand-written AVX2 loop on sum (0.31 vs 0.35), count (0.29
+vs 0.32) and max (0.47 vs 0.51). That comes from a new proved rewrite: `x % d == 0` for odd `d` becomes
+`x * inverse(d) < (2^64 - 1) / d + 1` (`nodiv_ok`, `P.nodiv_eval`), which has no divide, so the compiler can
+vectorise the filter. GCC vectorises it less well, and there the AVX2 loop still wins.
 
 - **Cause of the profile-guided loss:** the profile shows the keep test is taken about 60% of the time, and
   GCC then turns our `lp = kb ? &e : lp` select back into a branch, which mispredicts (checked in the
@@ -209,6 +215,7 @@ Each claim has a cheap test that would break it.
 | fused streams generated as C with no overhead | strymonas, "Stream Fusion, to Completeness" (Kiselyov et al., POPL 2017) |
 | proved generators that print C with a small trusted printer | Fiat-Crypto (Erbsen et al., IEEE S&P 2019); whole proved compilers: CompCert, CakeML |
 | branch-free selection | Ross, "Selection conditions in main memory" (TODS 2004) |
+| divisibility by multiplying with the inverse | Granlund and Montgomery (PLDI 1994); Lemire, Kaser, Kurz, "Faster remainder by direct computation" (2019) |
 | switching between branchy and branch-free code at run time | Vectorwise micro-adaptivity (Răducanu, Boncz, Zukowski, SIGMOD 2013) |
 | schedules that change speed but not results; picking the fastest of equal plans by timing | Halide (Ragan-Kelley et al., PLDI 2013), Exo (Ikarashi et al., PLDI 2022), FFTW's planner |
 

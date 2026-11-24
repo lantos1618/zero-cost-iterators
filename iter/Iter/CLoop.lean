@@ -317,6 +317,154 @@ theorem band01 (a b : Bool) :
     ((if a = true then (1 : UInt64) else 0) &&& if b = true then 1 else 0) = if (a && b) = true then 1 else 0 := by
   cases a <;> cases b <;> rfl
 
+/-! ## Switching record summary: the printed `SPipe.toCppAdapt` loops
+
+State: `(summary, index of lp, starts, prev)`. Each printed inner loop is one `cLoop` with its body. -/
+
+abbrev AState (ν : Type) := Summary (Row ν) UInt64 × Nat × UInt64 × UInt64
+
+section
+variable {ν : Type} (q : SPipe) (ps : List UInt64) (rows : Array (Row ν))
+
+/-- `for (; i < e; ++i) { body(i, es[i]) }` -/
+def cLoop {σ : Type} (e : Nat) (f : Nat → Row ν → σ → σ) (i : Nat) (st : σ) : σ :=
+  if h : i < e ∧ i < rows.size then cLoop e f (i + 1) (f i rows[i] st) else st
+termination_by e - i
+
+theorem cLoop_lt {σ : Type} (e : Nat) (f : Nat → Row ν → σ → σ) (i : Nat) (st : σ)
+    (h1 : i < e) (h2 : i < rows.size) : cLoop rows e f i st = cLoop rows e f (i + 1) (f i rows[i] st) := by
+  rw [cLoop, dif_pos ⟨h1, h2⟩]
+
+theorem cLoop_ge {σ : Type} (e : Nat) (f : Nat → Row ν → σ → σ) (i : Nat) (st : σ)
+    (h : ¬(i < e ∧ i < rows.size)) : cLoop rows e f i st = st := by
+  rw [cLoop, dif_neg h]
+
+/-- a loop whose body acts on a projection as `g` acts there -/
+theorem cLoop_map {σ τ : Type} (p : σ → τ) (f : Nat → Row ν → σ → σ) (g : Nat → Row ν → τ → τ)
+    (hf : ∀ i r st, p (f i r st) = g i r (p st)) (e : Nat) :
+    ∀ d i st, e - i = d → p (cLoop rows e f i st) = cLoop rows e g i (p st) := by
+  intro d
+  induction d with
+  | zero => intro i st hd; rw [cLoop_ge rows e f i st (by omega), cLoop_ge rows e g i _ (by omega)]
+  | succ d ih =>
+    intro i st hd
+    by_cases h : i < rows.size
+    · rw [cLoop_lt rows e f i st (by omega) h, cLoop_lt rows e g i _ (by omega) h, ← hf]
+      exact ih (i + 1) _ (by omega)
+    · rw [cLoop_ge rows e f i st (by omega), cLoop_ge rows e g i _ (by omega)]
+
+/-- `for (; i < pe; ...)` then `for (; i < e; ...)` with the same body is one loop to `e` -/
+theorem cLoop_trans {σ : Type} (g : Nat → Row ν → σ → σ) (pe e : Nat) (hpe : pe ≤ e) :
+    ∀ d i st, pe - i = d → i ≤ pe → cLoop rows e g pe (cLoop rows pe g i st) = cLoop rows e g i st := by
+  intro d
+  induction d with
+  | zero => intro i st hd hi; rw [cLoop_ge rows pe g i st (by omega), show pe = i by omega]
+  | succ d ih =>
+    intro i st hd hi
+    by_cases h : i < rows.size
+    · rw [cLoop_lt rows pe g i st (by omega) h, cLoop_lt rows e g i st (by omega) h]
+      exact ih (i + 1) _ (by omega) (by omega)
+    · rw [cLoop_ge rows pe g i st (by omega), cLoop_ge rows e g i st (by omega),
+        cLoop_ge rows e g pe st (by omega)]
+
+/-- masked body with the flip count: `k = keep; starts += k & ~prev; prev = k; cnt += 1 & m;
+tot += pay & m; lp = k ? &e : lp` -/
+def SPipe.aMaskC (i : Nat) (r : Row ν) (st : AState ν) : AState ν :=
+  let k : UInt64 := if q.keep.eval ps r.f then 1 else 0
+  (q.step2 ps st.1 r, if q.keep.eval ps r.f then i else st.2.1, st.2.2.1 + (k &&& ~~~st.2.2.2), k)
+
+/-- masked body: `cnt += 1 & m; tot += pay & m; lp = k ? &e : lp` -/
+def SPipe.aMask (i : Nat) (r : Row ν) (st : AState ν) : AState ν :=
+  (q.step2 ps st.1 r, if q.keep.eval ps r.f then i else st.2.1, st.2.2)
+
+/-- branchy body: `if (keep) { starts += lp + 1 != &e; cnt += 1; tot += pay; lp = &e; }` -/
+def SPipe.aBr (i : Nat) (r : Row ν) (st : AState ν) : AState ν :=
+  if q.keep.eval ps r.f then (q.stepB ps st.1 r, i, st.2.2.1 + (if st.2.1 + 1 ≠ i then 1 else 0), st.2.2.2)
+  else st
+
+/-- the block loop: `end = n - i > blk ? i + blk : n`; a masked block counts over its first `win` rows
+then runs uncounted, a branchy block counts on kept rows; next block masked iff `starts * den > w` -/
+def SPipe.aBlocks (blk win den : Nat) (i : Nat) (st : AState ν) (masked : Bool) : AState ν :=
+  if h : i < rows.size then
+    let e := if rows.size - i > max blk 1 then i + max blk 1 else rows.size
+    let pe := if e - i > win then i + win else e
+    let r : AState ν × Nat :=
+      if masked then
+        (cLoop rows e (q.aMask ps) pe
+          (cLoop rows pe (q.aMaskC ps) i (st.1, st.2.1, 0, if st.2.1 + 1 = i then 1 else 0)), pe - i)
+      else (cLoop rows e (q.aBr ps) i (st.1, st.2.1, 0, st.2.2.2), e - i)
+    SPipe.aBlocks blk win den e r.1 (decide (r.1.2.2.1 * den.toUInt64 > r.2.toUInt64))
+  else st
+termination_by rows.size - i
+decreasing_by split <;> omega
+
+/-- what the printed `SPipe.toCppAdapt` returns -/
+def SPipe.cAdapt (blk win den : Nat) : Summary ν UInt64 :=
+  let i := q.cFind ps rows 0
+  if h : i < rows.size then
+    let st := q.aBlocks ps rows blk win den (i + 1)
+      (⟨1, q.pay.eval ps rows[i].f, some rows[i], some rows[i]⟩, i, 0, 0) true
+    ⟨st.1.count, st.1.total, st.1.first.map (·.label), st.1.last.map (·.label)⟩
+  else ⟨0, 0, none, none⟩
+
+theorem cFold_loop : ∀ d i s, rows.size - i = d →
+    q.cFold ps rows i s = cLoop rows rows.size (fun _ r s => q.step2 ps s r) i s := by
+  intro d
+  induction d with
+  | zero => intro i s hd; unfold SPipe.cFold; rw [dif_neg (by omega), cLoop_ge rows _ _ i s (by omega)]
+  | succ d ih =>
+    intro i s hd
+    unfold SPipe.cFold
+    rw [dif_pos (by omega), cLoop_lt rows _ _ i s (by omega) (by omega)]
+    exact ih (i + 1) _ (by omega)
+
+/-- whatever bodies the blocks pick, the summary part is the masked loop to the end -/
+theorem aBlocks_fst (blk win den : Nat) : ∀ d i st m, rows.size - i = d →
+    (q.aBlocks ps rows blk win den i st m).1 = cLoop rows rows.size (fun _ r s => q.step2 ps s r) i st.1 := by
+  intro d
+  induction d using Nat.strongRecOn with
+  | _ d ih =>
+    intro i st m hd
+    by_cases h : i < rows.size
+    · rw [SPipe.aBlocks, dif_pos h]
+      simp only
+      have he : i < (if rows.size - i > max blk 1 then i + max blk 1 else rows.size) ∧
+          (if rows.size - i > max blk 1 then i + max blk 1 else rows.size) ≤ rows.size := by
+        split <;> omega
+      generalize (if rows.size - i > max blk 1 then i + max blk 1 else rows.size) = e at he ⊢
+      have hp : i ≤ (if e - i > win then i + win else e) ∧ (if e - i > win then i + win else e) ≤ e := by
+        split <;> omega
+      generalize (if e - i > win then i + win else e) = pe at hp ⊢
+      rw [ih (rows.size - e) (by omega) e _ _ rfl]
+      cases m
+      · simp only [Bool.false_eq_true, ↓reduceIte]
+        rw [cLoop_map rows Prod.fst (q.aBr ps) (fun _ r s => q.step2 ps s r)
+          (fun i r st => by
+            simp only [SPipe.aBr]; split
+            · simp [stepB_step2]
+            · rename_i hk; rw [← stepB_step2]; simp [SPipe.stepB, hk]) e _ i _ rfl]
+        exact cLoop_trans rows _ e rows.size he.2 _ i _ rfl (by omega)
+      · simp only [↓reduceIte]
+        rw [cLoop_map rows Prod.fst (q.aMask ps) (fun _ r s => q.step2 ps s r) (fun _ _ _ => rfl) e _ pe _ rfl,
+          cLoop_map rows Prod.fst (q.aMaskC ps) (fun _ r s => q.step2 ps s r) (fun _ _ _ => rfl) pe _ i _ rfl,
+          cLoop_trans rows _ pe e hp.2 _ i _ rfl hp.1]
+        exact cLoop_trans rows _ e rows.size he.2 _ i _ rfl (by omega)
+    · rw [SPipe.aBlocks, dif_neg h, cLoop_ge rows _ _ i _ (by omega)]
+
+/-- the printed switching loop structure computes the printed one-pass loop, for every block size, window
+and threshold -/
+theorem cAdapt_eq (blk win den : Nat) : q.cAdapt ps rows blk win den = q.cRun ps rows := by
+  rw [SPipe.cAdapt, SPipe.cRun]
+  simp only
+  split
+  · rw [aBlocks_fst q ps rows blk win den _ _ _ _ rfl, cFold_loop q ps rows _ _ _ rfl]
+  · rfl
+
+/-- the printed switching loop structure computes the `Iter` chain -/
+theorem printed_adapt (blk win den : Nat) : q.cAdapt ps rows blk win den = q.run ps rows :=
+  (cAdapt_eq q ps rows blk win den).trans (printed_summary q ps rows)
+end
+
 section exprs
 open Iter.C
 variable (env : Slot → UInt64)

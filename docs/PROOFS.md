@@ -188,7 +188,10 @@ just fuzzed. Still trusted there: that each printed line means its Lean function
 printer `CE.print`, and GCC. The expressions themselves are no longer printed straight to text: `E.toC`,
 `P.toC`, `X.toC` and `Q.toC` build a `CE` tree, whose `CE.eval` returns `none` for `/` or `%` by 0 (undefined
 in C++), and the `*.toC_eval` theorems prove every generated tree evaluates to `some` of the Lean value. `Pipe.cRed` and `SPipe.cRun` do the same for the `min?`/`max?` and masked record printers;
-the switching record printer (`SPipe.toCppAdapt`) has no such model yet.
+`SPipe.cAdapt` models the switching record printer (`SPipe.toCppAdapt`): one `cLoop` per printed inner
+loop, the block bounds, the flip count and the `starts * den > w` choice of the next block. `printed_adapt`
+proves it computes the `Iter` chain for every block size, window and threshold: the flip count and the choice
+only decide which body runs, and both bodies give the same summary.
 
 Printer details that matter: Lean defines `x / 0 = 0` and `x % 0 = x`, C++ leaves both undefined, so `/` and
 `%` are guarded unless the divisor is a nonzero literal. A missing field or parameter prints as `0ULL`, as

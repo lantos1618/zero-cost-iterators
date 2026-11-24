@@ -67,6 +67,67 @@ NOINLINE std::optional<u64> bfMax(const std::vector<u64>& xs, u64 k) {
   for (u64 x : xs) { u64 kb = (x ^ k) % 3 == 0; seen |= kb; m = std::max(m, (x * 2) & (0 - kb)); }
   return seen ? std::optional<u64>(m) : std::nullopt;
 }
+#ifdef __AVX2__
+#include <immintrin.h>
+// Hand-written AVX2 baselines, 4 words per vector. (x ^ k) % 3 == 0 is tested without a divide as
+// (x ^ k) * inverse(3) <= (2^64 - 1) / 3 (mod 2^64), with the 64-bit multiply built from 32-bit ones.
+static inline __m256i mul3inv(__m256i a) {
+  const __m256i lo = _mm256_set1_epi64x(0xAAAAAAABull), hi = _mm256_set1_epi64x(0xAAAAAAAAull);
+  __m256i ll = _mm256_mul_epu32(a, lo);
+  __m256i cross = _mm256_add_epi64(_mm256_mul_epu32(_mm256_srli_epi64(a, 32), lo), _mm256_mul_epu32(a, hi));
+  return _mm256_add_epi64(ll, _mm256_slli_epi64(cross, 32));
+}
+static inline __m256i keep3(__m256i x, __m256i kv) {  // all ones where (x ^ k) % 3 == 0
+  const __m256i sign = _mm256_set1_epi64x((long long)0x8000000000000000ull);
+  const __m256i lim = _mm256_set1_epi64x((long long)(0x5555555555555555ull ^ 0x8000000000000000ull));
+  __m256i y = _mm256_xor_si256(mul3inv(_mm256_xor_si256(x, kv)), sign);
+  return _mm256_xor_si256(_mm256_cmpgt_epi64(y, lim), _mm256_set1_epi64x(-1));
+}
+NOINLINE u64 simdU(const std::vector<u64>& xs, u64 k) {
+  const u64* p = xs.data(); std::size_t n = xs.size(), i = 0;
+  __m256i kv = _mm256_set1_epi64x((long long)k), a0 = _mm256_setzero_si256(), a1 = a0;
+  for (; i + 8 <= n; i += 8) {
+    __m256i x0 = _mm256_loadu_si256((const __m256i*)(p + i)), x1 = _mm256_loadu_si256((const __m256i*)(p + i + 4));
+    a0 = _mm256_add_epi64(a0, _mm256_and_si256(_mm256_slli_epi64(x0, 1), keep3(x0, kv)));
+    a1 = _mm256_add_epi64(a1, _mm256_and_si256(_mm256_slli_epi64(x1, 1), keep3(x1, kv)));
+  }
+  alignas(32) u64 t[4]; _mm256_store_si256((__m256i*)t, _mm256_add_epi64(a0, a1));
+  u64 acc = t[0] + t[1] + t[2] + t[3];
+  for (; i < n; ++i) if ((p[i] ^ k) % 3 == 0) acc += p[i] * 2;
+  return acc;
+}
+NOINLINE u64 simdC(const std::vector<u64>& xs, u64 k) {
+  const u64* p = xs.data(); std::size_t n = xs.size(), i = 0;
+  __m256i kv = _mm256_set1_epi64x((long long)k), a0 = _mm256_setzero_si256(), a1 = a0;
+  for (; i + 8 <= n; i += 8) {
+    a0 = _mm256_sub_epi64(a0, keep3(_mm256_loadu_si256((const __m256i*)(p + i)), kv));
+    a1 = _mm256_sub_epi64(a1, keep3(_mm256_loadu_si256((const __m256i*)(p + i + 4)), kv));
+  }
+  alignas(32) u64 t[4]; _mm256_store_si256((__m256i*)t, _mm256_add_epi64(a0, a1));
+  u64 c = t[0] + t[1] + t[2] + t[3];
+  for (; i < n; ++i) c += (p[i] ^ k) % 3 == 0;
+  return c;
+}
+NOINLINE std::optional<u64> simdMax(const std::vector<u64>& xs, u64 k) {
+  const u64* p = xs.data(); std::size_t n = xs.size(), i = 0;
+  const __m256i sign = _mm256_set1_epi64x((long long)0x8000000000000000ull);
+  __m256i kv = _mm256_set1_epi64x((long long)k), m = _mm256_setzero_si256(), seen = m;
+  for (; i + 4 <= n; i += 4) {
+    __m256i x = _mm256_loadu_si256((const __m256i*)(p + i)), kb = keep3(x, kv);
+    __m256i v = _mm256_and_si256(_mm256_slli_epi64(x, 1), kb);
+    __m256i gt = _mm256_cmpgt_epi64(_mm256_xor_si256(v, sign), _mm256_xor_si256(m, sign));
+    m = _mm256_blendv_epi8(m, v, gt);
+    seen = _mm256_or_si256(seen, kb);
+  }
+  alignas(32) u64 t[4], s[4];
+  _mm256_store_si256((__m256i*)t, m); _mm256_store_si256((__m256i*)s, seen);
+  u64 best = std::max(std::max(t[0], t[1]), std::max(t[2], t[3]));
+  bool any = s[0] | s[1] | s[2] | s[3];
+  for (; i < n; ++i) if ((p[i] ^ k) % 3 == 0) { best = any ? std::max(best, p[i] * 2) : p[i] * 2; any = true; }
+  return any ? std::optional<u64>(best) : std::nullopt;
+}
+#endif
+
 NOINLINE Summ bfA(const std::vector<Emp>& es, u64 minSal, u64 pct) {
   u64 cnt = 0, tot = 0;
   const Emp *fp = nullptr, *lp = nullptr;
@@ -109,6 +170,7 @@ static const FindCand provedF_cands[] = {{"plain", &findPlain}, {"blocks", &find
 static u64 (*provedU)(const std::vector<u64>&, u64);
 static u64 (*provedC)(const std::vector<u64>&, u64);
 static Hit (*provedF)(const std::vector<u64>&, u64);
+static std::optional<u64> (*provedMax)(const std::vector<u64>&, u64);
 
 // same rows, inactive first, then by salary: the hand loop's branch becomes predictable
 static std::vector<Emp> sortedRows(std::vector<Emp> es) {
@@ -199,5 +261,6 @@ static void tuneAll(const Data& d) {
   auto words = [&](auto f) { u64 a = 0; for (u64 r = 0; r < 4; ++r) a += f(d.tx, r); return a; };
   provedU = tune("provedU", provedU_cands, words);
   provedC = tune("provedC", provedC_cands, words);
+  provedMax = tune("provedMax", provedMax_cands, [&](auto f) { u64 a = 0; for (u64 r = 0; r < 4; ++r) a += f(d.tx, r).value_or(0); return a; });
   provedF = tune("provedF", provedF_cands, [&](auto f) { u64 a = 0; for (u64 r = 0; r < 4; ++r) a += f(d.tx, d.tbig + 1 + r) ? 1 : 0; return a; });
 }

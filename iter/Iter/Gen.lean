@@ -379,6 +379,114 @@ theorem wordPipe_count (k : UInt64) (xs : Array UInt64) :
     (opt 8 wordPipe.countPipe).run k xs = (xs.iter.filter (fun x => (x ^^^ k) % 3 == 0)).count.toUInt64 :=
   count_correct 8 wordPipe k xs
 
+/-! ### Divide-free divisibility test
+
+For `1 < d` with `d * c = 1` (mod 2^64), `y % d == 0` iff `y * c < (2^64 - 1) / d + 1`. There is no
+64-bit vector divide, so this rewrite lets a compiler vectorise a `% d == 0` filter. -/
+
+theorem mod_zero_iff_mul (y d c M : Nat) (hy : y < M) (hc : d * c % M = 1) :
+    y % d = 0 ↔ y * c % M ≤ (M - 1) / d := by
+  have hd : 0 < d := by
+    rcases Nat.eq_zero_or_pos d with h | h
+    · subst h; rw [Nat.zero_mul, Nat.zero_mod] at hc; exact absurd hc (by decide)
+    · exact h
+  have hM : 1 < M := by
+    rcases Nat.lt_or_ge 1 M with h | h
+    · exact h
+    · have : d * c % M < M := Nat.mod_lt _ (by omega)
+      omega
+  have back : ∀ t, (d * t) % M = (d * (t % M)) % M := fun t => by rw [Nat.mul_mod, Nat.mul_mod d (t % M), Nat.mod_mod]
+  constructor
+  · intro h
+    obtain ⟨q, rfl⟩ := Nat.dvd_of_mod_eq_zero h
+    have hq : d * q * c % M = q % M := by
+      rw [Nat.mul_assoc, Nat.mul_comm q c, ← Nat.mul_assoc, Nat.mul_mod, hc, Nat.one_mul, Nat.mod_mod]
+    have hqM : q < M := Nat.lt_of_le_of_lt (Nat.le_mul_of_pos_left q hd) hy
+    rw [hq, Nat.mod_eq_of_lt hqM, Nat.le_div_iff_mul_le hd, Nat.mul_comm]
+    omega
+  · intro h
+    have h1 : y * c % M * d ≤ M - 1 := (Nat.le_div_iff_mul_le hd).1 h
+    have h2 : d * (y * c % M) % M = y := by
+      rw [← back, ← Nat.mul_assoc, Nat.mul_comm d y, Nat.mul_assoc, Nat.mul_mod, hc, Nat.mul_one,
+        Nat.mod_mod, Nat.mod_eq_of_lt hy]
+    rw [Nat.mod_eq_of_lt (by rw [Nat.mul_comm]; omega)] at h2
+    rw [← h2, Nat.mul_mod_right]
+
+theorem nodiv_ok (y d c : UInt64) (hd : 1 < d) (hc : d * c = 1) :
+    (y % d == 0) = decide (y * c < 0xFFFFFFFFFFFFFFFF / d + 1) := by
+  have hdN : 1 < d.toNat := UInt64.lt_iff_toNat_lt.1 hd
+  have hcN : d.toNat * c.toNat % 2 ^ 64 = 1 := by rw [← UInt64.toNat_mul, hc]; rfl
+  have key := mod_zero_iff_mul y.toNat d.toNat c.toNat (2 ^ 64) y.toNat_lt_size hcN
+  have hlt : (2 ^ 64 - 1) / d.toNat < 2 ^ 64 - 1 := Nat.div_lt_self (by decide) hdN
+  have h1 : (y % d == 0) = true ↔ y.toNat % d.toNat = 0 := by
+    rw [beq_iff_eq, ← UInt64.toNat_inj, UInt64.toNat_mod]; rfl
+  have h2 : decide (y * c < 0xFFFFFFFFFFFFFFFF / d + 1) = true ↔
+      y.toNat * c.toNat % 2 ^ 64 ≤ (2 ^ 64 - 1) / d.toNat := by
+    rw [decide_eq_true_iff, UInt64.lt_iff_toNat_lt, UInt64.toNat_mul, UInt64.toNat_add, UInt64.toNat_div]
+    show _ < ((2 ^ 64 - 1) / d.toNat + 1) % 2 ^ 64 ↔ _
+    rw [Nat.mod_eq_of_lt (a := (2 ^ 64 - 1) / d.toNat + 1) (by omega)]
+    exact Nat.lt_succ_iff
+  rw [Bool.eq_iff_iff, h1, h2]
+  exact key
+
+/-- the inverse of odd `d` mod 2^64: Newton steps, each doubling the correct low bits -/
+def inv64 (d : UInt64) : UInt64 :=
+  let step := fun (y : UInt64) => y * (2 - d * y)
+  step (step (step (step (step d))))
+
+/-- `a % d == z` with `z = 0` and odd `d > 1` becomes `a * inverse(d) < (2^64 - 1) / d + 1` -/
+def nodivEq (a b : E) : P :=
+  match a, b with
+  | .mod a (.lit d), .lit z =>
+    if z = 0 ∧ 1 < d ∧ d * inv64 d = 1 then .lt (.mul a (.lit (inv64 d))) (.lit (0xFFFFFFFFFFFFFFFF / d + 1))
+    else .eq (.mod a (.lit d)) (.lit z)
+  | a, b => .eq a b
+
+def P.nodiv : P → P
+  | .eq a b => nodivEq a b
+  | .lt a b => .lt a b
+  | .and p q => .and p.nodiv q.nodiv
+
+theorem nodivEq_eval (k x : UInt64) (a b : E) : (nodivEq a b).eval k x = (P.eq a b).eval k x := by
+  unfold nodivEq
+  split
+  · split
+    · rename_i h
+      obtain ⟨rfl, hd, hc⟩ := h
+      simp only [P.eval, E.eval]
+      exact (nodiv_ok _ _ _ hd hc).symm
+    · rfl
+  · rfl
+
+theorem P.nodiv_eval (k x : UInt64) : ∀ p : P, p.nodiv.eval k x = p.eval k x
+  | .eq a b => nodivEq_eval k x a b
+  | .lt _ _ => rfl
+  | .and p q => by simp only [P.nodiv, P.eval, P.nodiv_eval k x p, P.nodiv_eval k x q]
+
+def Pipe.nodiv (q : Pipe) : Pipe := ⟨q.keep.nodiv, q.f⟩
+
+theorem nodiv_run (q : Pipe) (k : UInt64) (xs : Array UInt64) : q.nodiv.run k xs = q.run k xs := by
+  simp only [Pipe.run, Pipe.nodiv, P.nodiv_eval]
+
+theorem nodiv_red (r : Red) (q : Pipe) (k : UInt64) (xs : Array UInt64) : q.nodiv.red r k xs = q.red r k xs := by
+  cases r <;> simp only [Pipe.red, Pipe.nodiv, P.nodiv_eval]
+
+theorem nodiv_count (q : Pipe) (k : UInt64) (xs : Array UInt64) : q.nodiv.count k xs = q.count k xs := by
+  simp only [Pipe.count, Pipe.nodiv, P.nodiv_eval]
+
+/-- the divide-free candidates, as generated -/
+theorem wordPipe_nodiv (lanes : Nat) (k : UInt64) (xs : Array UInt64) :
+    (opt lanes wordPipe.nodiv).run k xs = wordPipe.run k xs := by
+  rw [opt_correct, nodiv_run]
+
+theorem wordPipe_nodiv_count (lanes : Nat) (k : UInt64) (xs : Array UInt64) :
+    (opt lanes wordPipe.nodiv.countPipe).run k xs = (wordPipe.count k xs).toUInt64 := by
+  rw [count_correct, nodiv_count]
+
+theorem wordPipe_nodiv_max (lanes : Nat) (k : UInt64) (xs : Array UInt64) :
+    wordPipe.nodiv.redRun .max lanes k xs = wordPipe.red .max k xs := by
+  rw [red_correct, nodiv_red]
+
 /-! ## Record summaries -/
 
 /-- expressions over a row's word fields and the call's word parameters -/

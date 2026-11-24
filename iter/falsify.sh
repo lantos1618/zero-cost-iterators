@@ -1,7 +1,7 @@
 #!/bin/sh
 # Try to prove the speed claim wrong. Claim: on every workload in falsify.cpp, the generated (proved) loop is
-# no more than 5% slower than the faster of two hand-written C++ loops: the plain `if` loop and the
-# branch-free loop (bf*). Builds falsify.cpp with every compiler found below, plus GCC profile-guided
+# no more than 5% slower than the fastest hand-written C++ loop: the plain `if` loop, the branch-free loop
+# (bf*) and, where the build targets AVX2, a hand-vectorised loop (simd*). Builds falsify.cpp with every compiler found below, plus GCC profile-guided
 # optimisation, runs each pinned to one core, and prints FALSIFIED for every row where the claim fails.
 # Usage: sh falsify.sh [items]   (default 1,000,000)
 cd "$(dirname "$0")" || exit 2
@@ -34,16 +34,16 @@ for line in open(sys.argv[1]):
     if 'results_equal=false' in line: bad.append(line.split()[0])
     m = re.match(r'(\S+) BENCH (\S+)/(\S+) median_ns_per_item_x100=(\d+) min=(\d+) max=(\d+)', line)
     if m: t[(m[1], m[2])][m[3]] = (int(m[4]) / 100, int(m[5]) / 100, int(m[6]) / 100)
-print('| build | pipeline | plain hand | branch-free hand | ours | ours / best hand | verdict |')
-print('|---|---|---:|---:|---:|---:|---|')
+print('| build | pipeline | plain hand | branch-free hand | AVX2 hand | ours | ours / best hand | verdict |')
+print('|---|---|---:|---:|---:|---:|---:|---|')
 fails = 0
 for (build, pipe), v in t.items():
-    hands = [v[k][0] for k in ('hand', 'bf') if k in v]
+    hands = [v[k][0] for k in ('hand', 'bf', 'simd') if k in v]
     best = min(hands); r = v['ours'][0] / best
     verdict = 'FALSIFIED' if r > 1.05 else ('win' if r < 0.95 else 'tie')
     fails += verdict == 'FALSIFIED'
     f = lambda k: f"{v[k][0]:.2f}" if k in v else '-'
-    print(f"| {build} | {pipe} | {f('hand')} | {f('bf')} | {f('ours')} | {r:.2f} | {verdict} |")
+    print(f"| {build} | {pipe} | {f('hand')} | {f('bf')} | {f('simd')} | {f('ours')} | {r:.2f} | {verdict} |")
 print(f"FALSIFY rows={len(t)} falsified={fails} wrong_results={len(bad)}")
 sys.exit(1 if bad else 0)
 PY

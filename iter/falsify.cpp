@@ -17,18 +17,36 @@ int main(int argc, char** argv) {
     for (u64 m : {0ull, 50000ull, 250000ull})
       ok = ok && same(bfA(*rows, m, 90), handA(*rows, m, 90)) && same(adaptA(*rows, m, 90), handA(*rows, m, 90));
   ok = ok && provedF(xs, d.big) == handF(xs, d.big) && !provedF(xs, d.big + 1);
+#ifdef __AVX2__
+  for (u64 k : {1ull, 2ull, 7ull})
+    ok = ok && simdU(xs, k) == handU(xs, k) && simdC(xs, k) == handC(xs, k) && simdMax(xs, k) == handMax(xs, k);
+  for (std::size_t len : {0, 1, 3, 4, 5, 9, 17}) {
+    std::vector<u64> ys(xs.begin(), xs.begin() + len);
+    for (u64 k : {0ull, 1ull, 2ull})
+      ok = ok && simdU(ys, k) == handU(ys, k) && simdC(ys, k) == handC(ys, k) && simdMax(ys, k) == handMax(ys, k);
+  }
+#endif
   std::printf("FALSIFY results_equal=%s\n", ok ? "true" : "false");
   if (!ok) return 1;
 
   const int reps = 20;
   bench("sum/hand", n, reps, [&](int r) { return handU(xs, r); });
   bench("sum/bf", n, reps, [&](int r) { return bfU(xs, r); });
+#ifdef __AVX2__
+  bench("sum/simd", n, reps, [&](int r) { return simdU(xs, r); });
+#endif
   bench("sum/ours", n, reps, [&](int r) { return provedU(xs, r); });
   bench("count/hand", n, reps, [&](int r) { return handC(xs, r); });
   bench("count/bf", n, reps, [&](int r) { return bfC(xs, r); });
+#ifdef __AVX2__
+  bench("count/simd", n, reps, [&](int r) { return simdC(xs, r); });
+#endif
   bench("count/ours", n, reps, [&](int r) { return provedC(xs, r); });
   bench("max/hand", n, reps, [&](int r) { return handMax(xs, r).value_or(0); });
   bench("max/bf", n, reps, [&](int r) { return bfMax(xs, r).value_or(0); });
+#ifdef __AVX2__
+  bench("max/simd", n, reps, [&](int r) { return simdMax(xs, r).value_or(0); });
+#endif
   bench("max/ours", n, reps, [&](int r) { return provedMax(xs, r).value_or(0); });
   const std::pair<const char*, const std::vector<Emp>*> rowSets[] = {
       {"records_random", &d.es}, {"records_sorted", &d.sorted}, {"records_runs", &d.runs}, {"records_mixed", &d.mixed}};

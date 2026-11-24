@@ -107,6 +107,102 @@ __attribute__((noinline)) static std::uint64_t provedU_b8(const std::vector<std:
   return total * 2ULL;
 }
 
+__attribute__((noinline)) static std::uint64_t provedU_dm1(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc[1] = {};
+  std::size_t n = xs.size(), i = 0;
+  for (; i + 1 <= n; i += 1)
+    for (std::size_t j = 0; j < 1; ++j) { std::uint64_t x = xs[i + j]; acc[j] += (x & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)))); }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 1] += (x & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)))); }
+  std::uint64_t total = 0;
+  for (std::uint64_t a : acc) total += a;
+  return total * 2ULL;
+}
+
+__attribute__((noinline)) static std::uint64_t provedU_db1(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc[1] = {};
+  std::size_t n = xs.size(), i = 0;
+  for (; i + 1 <= n; i += 1)
+    for (std::size_t j = 0; j < 1; ++j) { std::uint64_t x = xs[i + j]; if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) acc[j] += x; }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) acc[i % 1] += x; }
+  std::uint64_t total = 0;
+  for (std::uint64_t a : acc) total += a;
+  return total * 2ULL;
+}
+
+__attribute__((noinline)) static std::uint64_t provedU_dm2(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc[2] = {};
+  std::size_t n = xs.size(), i = 0;
+  for (; i + 2 <= n; i += 2)
+    for (std::size_t j = 0; j < 2; ++j) { std::uint64_t x = xs[i + j]; acc[j] += (x & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)))); }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 2] += (x & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)))); }
+  std::uint64_t total = 0;
+  for (std::uint64_t a : acc) total += a;
+  return total * 2ULL;
+}
+
+__attribute__((noinline)) static std::uint64_t provedU_db2(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc[2] = {};
+  std::size_t n = xs.size(), i = 0;
+  for (; i + 2 <= n; i += 2)
+    for (std::size_t j = 0; j < 2; ++j) { std::uint64_t x = xs[i + j]; if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) acc[j] += x; }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) acc[i % 2] += x; }
+  std::uint64_t total = 0;
+  for (std::uint64_t a : acc) total += a;
+  return total * 2ULL;
+}
+
+__attribute__((noinline)) static std::uint64_t provedU_dm4(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc[4] = {};
+  std::size_t n = xs.size(), i = 0;
+  for (; i + 4 <= n; i += 4)
+    for (std::size_t j = 0; j < 4; ++j) { std::uint64_t x = xs[i + j]; acc[j] += (x & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)))); }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 4] += (x & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)))); }
+  std::uint64_t total = 0;
+  for (std::uint64_t a : acc) total += a;
+  return total * 2ULL;
+}
+
+__attribute__((noinline)) static std::uint64_t provedU_db4(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc[4] = {};
+  std::size_t n = xs.size(), i = 0;
+  for (; i + 4 <= n; i += 4)
+    for (std::size_t j = 0; j < 4; ++j) { std::uint64_t x = xs[i + j]; if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) acc[j] += x; }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) acc[i % 4] += x; }
+  std::uint64_t total = 0;
+  for (std::uint64_t a : acc) total += a;
+  return total * 2ULL;
+}
+
+__attribute__((noinline)) static std::uint64_t provedU_dm8(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc[8] = {};
+  std::size_t n = xs.size(), i = 0;
+  for (; i + 8 <= n; i += 8)
+    for (std::size_t j = 0; j < 8; ++j) { std::uint64_t x = xs[i + j]; acc[j] += (x & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)))); }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 8] += (x & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)))); }
+  std::uint64_t total = 0;
+  for (std::uint64_t a : acc) total += a;
+  return total * 2ULL;
+}
+
+__attribute__((noinline)) static std::uint64_t provedU_db8(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc[8] = {};
+  std::size_t n = xs.size(), i = 0;
+  for (; i + 8 <= n; i += 8)
+    for (std::size_t j = 0; j < 8; ++j) { std::uint64_t x = xs[i + j]; if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) acc[j] += x; }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) acc[i % 8] += x; }
+  std::uint64_t total = 0;
+  for (std::uint64_t a : acc) total += a;
+  return total * 2ULL;
+}
+
 __attribute__((noinline)) static std::uint64_t provedU_rb(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
   (void)k;
   std::uint64_t acc = 0;
@@ -121,7 +217,21 @@ __attribute__((noinline)) static std::uint64_t provedU_rm(const std::vector<std:
   return acc * 2ULL;
 }
 
-static const WordCand provedU_cands[] = {{"m1", &provedU_m1}, {"b1", &provedU_b1}, {"m2", &provedU_m2}, {"b2", &provedU_b2}, {"m4", &provedU_m4}, {"b4", &provedU_b4}, {"m8", &provedU_m8}, {"b8", &provedU_b8}, {"rb", &provedU_rb}, {"rm", &provedU_rm}};
+__attribute__((noinline)) static std::uint64_t provedU_drb(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc = 0;
+  for (std::uint64_t x : xs) if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) acc += x;
+  return acc * 2ULL;
+}
+
+__attribute__((noinline)) static std::uint64_t provedU_drm(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc = 0;
+  for (std::uint64_t x : xs) acc += (x & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL))));
+  return acc * 2ULL;
+}
+
+static const WordCand provedU_cands[] = {{"m1", &provedU_m1}, {"b1", &provedU_b1}, {"m2", &provedU_m2}, {"b2", &provedU_b2}, {"m4", &provedU_m4}, {"b4", &provedU_b4}, {"m8", &provedU_m8}, {"b8", &provedU_b8}, {"dm1", &provedU_dm1}, {"db1", &provedU_db1}, {"dm2", &provedU_dm2}, {"db2", &provedU_db2}, {"dm4", &provedU_dm4}, {"db4", &provedU_db4}, {"dm8", &provedU_dm8}, {"db8", &provedU_db8}, {"rb", &provedU_rb}, {"rm", &provedU_rm}, {"drb", &provedU_drb}, {"drm", &provedU_drm}};
 
 // Iter.Gen.wordPipe_count proves these loops equal to filter -> count.
 __attribute__((noinline)) static std::uint64_t provedC_m1(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
@@ -220,6 +330,102 @@ __attribute__((noinline)) static std::uint64_t provedC_b8(const std::vector<std:
   return total * 1ULL;
 }
 
+__attribute__((noinline)) static std::uint64_t provedC_dm1(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc[1] = {};
+  std::size_t n = xs.size(), i = 0;
+  for (; i + 1 <= n; i += 1)
+    for (std::size_t j = 0; j < 1; ++j) { std::uint64_t x = xs[i + j]; acc[j] += (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)))); }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 1] += (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)))); }
+  std::uint64_t total = 0;
+  for (std::uint64_t a : acc) total += a;
+  return total * 1ULL;
+}
+
+__attribute__((noinline)) static std::uint64_t provedC_db1(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc[1] = {};
+  std::size_t n = xs.size(), i = 0;
+  for (; i + 1 <= n; i += 1)
+    for (std::size_t j = 0; j < 1; ++j) { std::uint64_t x = xs[i + j]; if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) acc[j] += 1ULL; }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) acc[i % 1] += 1ULL; }
+  std::uint64_t total = 0;
+  for (std::uint64_t a : acc) total += a;
+  return total * 1ULL;
+}
+
+__attribute__((noinline)) static std::uint64_t provedC_dm2(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc[2] = {};
+  std::size_t n = xs.size(), i = 0;
+  for (; i + 2 <= n; i += 2)
+    for (std::size_t j = 0; j < 2; ++j) { std::uint64_t x = xs[i + j]; acc[j] += (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)))); }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 2] += (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)))); }
+  std::uint64_t total = 0;
+  for (std::uint64_t a : acc) total += a;
+  return total * 1ULL;
+}
+
+__attribute__((noinline)) static std::uint64_t provedC_db2(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc[2] = {};
+  std::size_t n = xs.size(), i = 0;
+  for (; i + 2 <= n; i += 2)
+    for (std::size_t j = 0; j < 2; ++j) { std::uint64_t x = xs[i + j]; if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) acc[j] += 1ULL; }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) acc[i % 2] += 1ULL; }
+  std::uint64_t total = 0;
+  for (std::uint64_t a : acc) total += a;
+  return total * 1ULL;
+}
+
+__attribute__((noinline)) static std::uint64_t provedC_dm4(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc[4] = {};
+  std::size_t n = xs.size(), i = 0;
+  for (; i + 4 <= n; i += 4)
+    for (std::size_t j = 0; j < 4; ++j) { std::uint64_t x = xs[i + j]; acc[j] += (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)))); }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 4] += (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)))); }
+  std::uint64_t total = 0;
+  for (std::uint64_t a : acc) total += a;
+  return total * 1ULL;
+}
+
+__attribute__((noinline)) static std::uint64_t provedC_db4(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc[4] = {};
+  std::size_t n = xs.size(), i = 0;
+  for (; i + 4 <= n; i += 4)
+    for (std::size_t j = 0; j < 4; ++j) { std::uint64_t x = xs[i + j]; if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) acc[j] += 1ULL; }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) acc[i % 4] += 1ULL; }
+  std::uint64_t total = 0;
+  for (std::uint64_t a : acc) total += a;
+  return total * 1ULL;
+}
+
+__attribute__((noinline)) static std::uint64_t provedC_dm8(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc[8] = {};
+  std::size_t n = xs.size(), i = 0;
+  for (; i + 8 <= n; i += 8)
+    for (std::size_t j = 0; j < 8; ++j) { std::uint64_t x = xs[i + j]; acc[j] += (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)))); }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; acc[i % 8] += (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)))); }
+  std::uint64_t total = 0;
+  for (std::uint64_t a : acc) total += a;
+  return total * 1ULL;
+}
+
+__attribute__((noinline)) static std::uint64_t provedC_db8(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc[8] = {};
+  std::size_t n = xs.size(), i = 0;
+  for (; i + 8 <= n; i += 8)
+    for (std::size_t j = 0; j < 8; ++j) { std::uint64_t x = xs[i + j]; if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) acc[j] += 1ULL; }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) acc[i % 8] += 1ULL; }
+  std::uint64_t total = 0;
+  for (std::uint64_t a : acc) total += a;
+  return total * 1ULL;
+}
+
 __attribute__((noinline)) static std::uint64_t provedC_rb(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
   (void)k;
   std::uint64_t acc = 0;
@@ -234,10 +440,26 @@ __attribute__((noinline)) static std::uint64_t provedC_rm(const std::vector<std:
   return acc * 1ULL;
 }
 
-static const WordCand provedC_cands[] = {{"m1", &provedC_m1}, {"b1", &provedC_b1}, {"m2", &provedC_m2}, {"b2", &provedC_b2}, {"m4", &provedC_m4}, {"b4", &provedC_b4}, {"m8", &provedC_m8}, {"b8", &provedC_b8}, {"rb", &provedC_rb}, {"rm", &provedC_rm}};
+__attribute__((noinline)) static std::uint64_t provedC_drb(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc = 0;
+  for (std::uint64_t x : xs) if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) acc += 1ULL;
+  return acc * 1ULL;
+}
 
-// Iter.Gen.wordPipe_max proves this loop equal to filter -> map -> max?.
-__attribute__((noinline)) static std::optional<std::uint64_t> provedMax(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+__attribute__((noinline)) static std::uint64_t provedC_drm(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc = 0;
+  for (std::uint64_t x : xs) acc += (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL))));
+  return acc * 1ULL;
+}
+
+static const WordCand provedC_cands[] = {{"m1", &provedC_m1}, {"b1", &provedC_b1}, {"m2", &provedC_m2}, {"b2", &provedC_b2}, {"m4", &provedC_m4}, {"b4", &provedC_b4}, {"m8", &provedC_m8}, {"b8", &provedC_b8}, {"dm1", &provedC_dm1}, {"db1", &provedC_db1}, {"dm2", &provedC_dm2}, {"db2", &provedC_db2}, {"dm4", &provedC_dm4}, {"db4", &provedC_db4}, {"dm8", &provedC_dm8}, {"db8", &provedC_db8}, {"rb", &provedC_rb}, {"rm", &provedC_rm}, {"drb", &provedC_drb}, {"drm", &provedC_drm}};
+
+// Iter.Gen.wordPipe_max and wordPipe_nodiv_max prove these loops equal to filter -> map -> max?.
+struct RedCand { const char* tag; std::optional<std::uint64_t> (*f)(const std::vector<std::uint64_t>&, std::uint64_t); };
+
+__attribute__((noinline)) static std::optional<std::uint64_t> provedMax_m4(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
   (void)k;
   std::uint64_t acc[4], seen = 0;
   for (std::uint64_t& a : acc) a = 0ULL;
@@ -250,6 +472,36 @@ __attribute__((noinline)) static std::optional<std::uint64_t> provedMax(const st
   if (seen) return m;
   return std::nullopt;
 }
+
+__attribute__((noinline)) static std::optional<std::uint64_t> provedMax_dm4(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc[4], seen = 0;
+  for (std::uint64_t& a : acc) a = 0ULL;
+  std::size_t n = xs.size(), i = 0;
+  for (; i + 4 <= n; i += 4)
+    for (std::size_t j = 0; j < 4; ++j) { std::uint64_t x = xs[i + j]; std::uint64_t b = ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)); seen |= b; acc[j] = std::max<std::uint64_t>(acc[j], ((x * 2ULL) & (0ULL - b))); }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; std::uint64_t b = ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)); seen |= b; acc[i % 4] = std::max<std::uint64_t>(acc[i % 4], ((x * 2ULL) & (0ULL - b))); }
+  std::uint64_t m = 0ULL;
+  for (std::uint64_t a : acc) m = std::max<std::uint64_t>(m, a);
+  if (seen) return m;
+  return std::nullopt;
+}
+
+__attribute__((noinline)) static std::optional<std::uint64_t> provedMax_dm1(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
+  (void)k;
+  std::uint64_t acc[1], seen = 0;
+  for (std::uint64_t& a : acc) a = 0ULL;
+  std::size_t n = xs.size(), i = 0;
+  for (; i + 1 <= n; i += 1)
+    for (std::size_t j = 0; j < 1; ++j) { std::uint64_t x = xs[i + j]; std::uint64_t b = ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)); seen |= b; acc[j] = std::max<std::uint64_t>(acc[j], ((x * 2ULL) & (0ULL - b))); }
+  for (; i < n; ++i) { std::uint64_t x = xs[i]; std::uint64_t b = ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)); seen |= b; acc[i % 1] = std::max<std::uint64_t>(acc[i % 1], ((x * 2ULL) & (0ULL - b))); }
+  std::uint64_t m = 0ULL;
+  for (std::uint64_t a : acc) m = std::max<std::uint64_t>(m, a);
+  if (seen) return m;
+  return std::nullopt;
+}
+
+static const RedCand provedMax_cands[] = {{"m4", &provedMax_m4}, {"dm4", &provedMax_dm4}, {"dm1", &provedMax_dm1}};
 
 // Iter.Gen.recPipe_gen proves this loop equal to the running summary; needs Emp and Summ from the includer.
 __attribute__((noinline)) static Summ provedA(const std::vector<Emp>& es, std::uint64_t p0, std::uint64_t p1) {
