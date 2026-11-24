@@ -50,7 +50,8 @@ worked example and C++ is the target. Speed is measured to check the method, not
    hand-written C++ under several compilers (below).
 
 To reuse it, write your adapter, prove its `Denotes` lemma and its cost lemma, and the rest composes: each new
-pipeline's correctness proof is one line.
+pipeline's correctness proof is one line. [docs/GUIDE.md](docs/GUIDE.md) walks through the recipe step by step on a
+second abstraction, `Result` chaining; [docs/WRITEUP.md](docs/WRITEUP.md) is the full write-up.
 
 ## Scorecard
 
@@ -70,7 +71,9 @@ pipeline's correctness proof is one line.
 | `enumerate → find?` = block search (an `any` pass per block, then a scan of the block that hit), for every block size | `printed_find`, `findPipe_gen` | proved |
 | the branchy and range-for word printers compute the same loops (so the tuner only changes speed) | `printed_range`, `printed_range_count` (same model as `cRun` for the branchy step) | proved |
 | every printed expression (`E`, `P`, `X`, `Q`, masks, min/max identities) is a C syntax tree whose meaning is the Lean value and is never undefined (`/` and `%` by 0 are guarded) | `E.toC_eval`, `P.toC_eval`, `X.toC_eval`, `Q.toC_eval`, `word_step`, `red_step`, `rec_step` (`Iter/CExpr.lean`) | proved |
-| tree → text (one fixed rule per node, `CE.print`); each printed loop line means its Lean step | 43,200-result fuzz under UBSan, 3 planted bugs caught | trusted, fuzzed |
+| `Result` chaining: any nesting of `and_then` = the flat early-return code, in every lawful monad; 0 intermediate `Result`s and the same steps in the cost model; 2 wasteful versions rejected | `flat_correct`, `lower_correct`, `lower_wraps`, `lower_steps`, `mut_eager`, `mut_boxed` (`Iter/Res.lean`) | proved (cost: model only) |
+| the printed `Result` function and the range-for word loops are C statement trees (`CS`: assignment, early `return`, `if`, range-for) whose meaning is the proved program, never undefined | `printed_chain`, `checkChain_gen`, `printed_range_cs`, `printed_range_chain` (`Iter/CStmt.lean`) | proved |
+| tree → text (one fixed rule per node, `CE.print`, `CS.print`); for the lane, record and search loops, that each printed loop line means its Lean step | 43,200-result fuzz under UBSan, 3 planted bugs caught; `Result` function: 3M inputs, 1 planted bug caught | trusted, fuzzed |
 | C++ → machine code | — | trusted (GCC) |
 | zero cost in Lean's own compiled code | — | measured: holds for `filter → map → fold`; `enumerate`, `drop`, `dropWhile`, `zip` still allocate there (a Lean compiler matter, not our C++) |
 | hand-written AVX2 and branch-free baselines | — | comparison code, result-checked only |
@@ -214,13 +217,49 @@ ns per row, range over two runs; all builds are in `falsify.sh`'s output.
   order, where the hand AVX2 loop is 6–12% faster.
 - **Unlike the record benchmark,** the profile-guided build does not regress here.
 
+## A second abstraction: `Result` chaining
+
+The recipe applied to something that is not an iterator, to check that it carries over. Validation written as
+a chain of steps that may fail (`and_then` on C++23 `std::expected`, Rust's `?`, Haskell's `>>=`), nested in
+any way, against flat early-return code. Step-by-step walkthrough: [docs/GUIDE.md](docs/GUIDE.md).
+
+- **Law:** `flat_correct`: any nesting of steps equals the flat list run left to right, in every lawful
+  monad. It is the monad associativity law, proved once.
+- **Plain program:** `lrun`, written independently as early returns; `lower_correct` says the chain equals it.
+- **Zero cost, in a model:** `RCost` counts steps run and intermediate `Result` values. The flat code builds 0
+  (`lower_wraps`) and runs exactly the chain's steps, so it stops at the same failure (`lower_steps`). An eager
+  version (keeps going after a failure) and a boxed one (wraps every step) give the same results and are
+  rejected (`mut_eager`, `mut_boxed`).
+- **C++:** the generator builds a C statement tree (`Iter/CStmt.lean`) and `printed_chain` proves its C
+  meaning is the chain's result, with no undefined behaviour. `provedCheck` in `iter/gen/proved_gen.hpp` is
+  printed from it.
+
+`sh iter/chain.sh` checks 3M inputs against a hand-written function and a library `and_then` chain (flat, and
+nested as the Lean chain is), then times them. ns per call, two runs, `noinline` calls:
+
+| build | hand, same tests | hand, `x % 7 == 6` | `and_then` flat | `and_then` nested | ours |
+|---|---:|---:|---:|---:|---:|
+| GCC 12 `-O2` | 3.62–3.71 | 3.61–3.70 | 3.77–3.78 | 3.58–3.62 | 3.61–3.62 |
+| GCC 12 `-O3 -march=native` | 3.35–3.36 | 3.36–3.38 | 3.40 | 3.44–3.45 | 3.38–3.40 |
+| clang 15 `-O2` | 4.62–4.70 | **4.17–4.27** | 4.54–4.64 | 4.89–4.91 | 4.51–4.56 |
+| clang 15 `-O3 -march=native` | 4.46–4.49 | **3.96–4.02** | 4.59–4.60 | 4.63–4.72 | 4.43–4.49 |
+
+- **Ours ties the hand function** in every build. With the same tests, clang 15 emits the same instruction
+  count for both (43 at `-O2`); GCC 12 emits 34 for both.
+- **The library chain is close to free here**: within 3% of the hand function under GCC, and 0–9% slower under
+  clang, more when nested.
+- **Spelling beats abstraction:** writing `x % 7 == 6` instead of `!(x % 7 < 6)` makes clang's code 10%
+  faster (37 instructions, a multiply-compare divisibility test instead of a full remainder). The results are
+  equal; the generator prints the `<` form because that is what the chain says. Proving the `==` rewrite
+  and printing it would be the next step, as `nodiv_ok` did for `% d == 0`.
+
 ## How to prove this wrong
 
 Each claim has a cheap test that would break it.
 
 | claim | cheapest way to break it | result |
 |---|---|---|
-| a chain equals its list program | find a chain and input where they differ: a counterexample would make the Lean proof impossible | `lake build` checks every proof; `replay.sh` audits the 373 theorems for `sorry` and non-standard axioms |
+| a chain equals its list program | find a chain and input where they differ: a counterexample would make the Lean proof impossible | `lake build` checks every proof; `replay.sh` audits the 449 theorems for `sorry` and non-standard axioms |
 | zero cost in the model | write a wasteful lowering that the cost theorems accept | the 3 planted ones (extra list, double test, no early exit) are rejected |
 | zero cost in compiled Lean | time a chain against its hand loop | **already broken** for `enumerate`, `drop`, `dropWhile`, `zip`: Lean boxes the counter (1.2–7× slower); holds for `filter → map → fold` |
 | the printed C++ computes what Lean proved | plant a printer bug and see if anything notices | 43,200 fuzz results under UBSan; all 3 planted bugs caught |
@@ -300,14 +339,16 @@ for laws → proved zero-cost abstraction → C++. The algebra is well known (se
 a loop that switches strategy on the data with a proof that every switch is correct, so the choice can be
 tuned for speed alone. Not worth it as a way to make Lean code fast.
 
-## Status (v1.0)
+## Status (v1.1)
 
-Finished as a worked recipe. Every C++ loop the benchmarks call "ours" is printed from Lean, and its loop
+Finished as a worked recipe, with a second abstraction (`Result` chaining, above). Every C++ loop the benchmarks call "ours" is printed from Lean, and its loop
 structure and expressions are proved equal to the `Iter` chain (`printed_*`, `*.toC_eval`). What stays
 trusted is the fixed text rule per tree node, that each printed loop line means its Lean step (both fuzzed),
 and the C++ compiler. Out of scope, left as open problems:
 
-- a formal C semantics for the printed lines, which would leave only the compiler trusted;
+- the lane, record and search loops as statement trees: `Iter/CStmt.lean` covers assignment, early
+  `return`, `if` and range-for, enough for the `Result` function and the range-for word loops, but not yet
+  local arrays (`acc[l]`), index loops or pointer selects;
 - zero cost in Lean's own compiled code for `enumerate`, `drop`, `dropWhile` and `zip` (needs compiler work);
 - user-defined functions and strings in the pipeline language;
 - proofs for the hand-written AVX2 baselines, and an ISPC comparison.
@@ -332,6 +373,8 @@ the first bad line in a file manifest.
 | `iter/Iter/` | the library: `Basic` (iterators and their proofs), `More` (more adapters, `zip`, terminals), `Group` (`groupFold`), `Cost` (cost model), `Rewrite` (proved loop rewrites) |
 | `iter/Iter/Gen.lean`, `iter/GenCpp.lean`, `iter/gen/` | proved word and record loop generators, their C++ printers, and the generated header |
 | `iter/Iter/CExpr.lean` | a small C expression tree (`CE`): 64-bit operators, `?:`, casts; its meaning (`/`, `%` by 0 undefined) and its one-rule-per-node printer |
+| `iter/Iter/CStmt.lean` | C statement trees (`CS`): assignment, `if (!c) return r;`, `if`, range-for; their meaning (undefined behaviour is `none`) and printer |
+| `iter/Iter/Res.lean`, `iter/chain.cpp`, `iter/chain.sh` | the second abstraction, `Result` chaining, through the whole recipe; its C++ check and benchmark |
 | `iter/Iter/CLoop.lean` | the printed loops' C++ control flow modelled and proved equal to the proved loops; the printed expression trees proved equal to the Lean values |
 | `iter/FuzzCpp.lean` | differential fuzz of the C++ printers against Lean |
 | `iter/bench.cpp`, `iter/ablate.cpp` | C++ benchmark (hand, `std::views`, staged, ours) and the record-summary ablation |
@@ -340,5 +383,7 @@ the first bad line in a file manifest.
 | `tasks/` | CLI fixtures, expected outputs and `replay.sh` |
 | `docs/DETAILS.md` | theorem list, cost model, CLI formats and exit codes, limits |
 | `docs/PROOFS.md` | how the rewrite proofs work, step by step |
+| `docs/GUIDE.md` | how to apply the recipe to your own abstraction, worked on `Result` chaining |
+| `docs/WRITEUP.md` | the full write-up: method, both case studies, trust boundary, falsification, prior work, limits |
 
 Earlier experiments (the first `.view()` API, INT8 kernels, Bend and APL work) are on the `archive` branch.

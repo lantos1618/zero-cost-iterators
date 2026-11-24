@@ -1,6 +1,7 @@
 import Iter.Rewrite
 import Iter.More
 import Iter.CExpr
+import Iter.CStmt
 /-!
 # A proved optimiser for word pipelines, with a C++ printer
 
@@ -167,12 +168,16 @@ def Loop.toCpp (L : Loop) (name : String) (br : Bool := false) : String :=
     s!"  return total * {L.scale.toCpp};",
     "}"])
 
-/-- one accumulator over a range-for; modelled by `Loop.cRunR` (`cRunR_eq`). `br` as in `Loop.toCpp` -/
+open Iter.C in
+/-- the range-for body as a statement tree, accumulator in `b`: `if (keep) b = b + body` or the masked add -/
+def Loop.rangeCS (L : Loop) (br : Bool) : CS :=
+  .each (if br then .when L.keep.toC (.assign .b (.bin .add (.var .b) L.body.toC))
+    else .assign .b (.bin .add (.var .b) (maskC L.body.toC (.cast L.keep.toC))))
+
+/-- one accumulator over a range-for, printed from `Loop.rangeCS` (`printed_range_cs`). `br` as in `Loop.toCpp` -/
 def Loop.toCppRange (L : Loop) (name : String) (br : Bool := true) : String :=
-  String.intercalate "\n" [header "std::uint64_t" name, "  (void)k;", "  std::uint64_t acc = 0;",
-    if br then s!"  for (std::uint64_t x : xs) if ({L.keep.toCpp}) acc += {L.body.toCpp};"
-    else s!"  for (std::uint64_t x : xs) acc += {(C.maskC L.body.toC (.cast L.keep.toC)).print wordNm};",
-    s!"  return acc * {L.scale.toCpp};", "}"]
+  String.intercalate "\n" ([header "std::uint64_t" name, "  std::uint64_t b = 0;"] ++
+    ((L.rangeCS br).print wordNm id).map ("  " ++ ·) ++ [s!"  return b * {L.scale.toCpp};", "}"])
 
 /-! ## The benchmark's word pipeline -/
 

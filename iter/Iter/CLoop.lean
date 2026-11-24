@@ -695,4 +695,67 @@ theorem rec_step (q : SPipe) (ps r : List UInt64) (hf : ∀ i, env (.fld i) = r.
 
 end exprs
 
+/-! ### printed range-for loops as statement trees (`Iter/CStmt.lean`) -/
+section stmts
+open Iter.C
+
+theorem each_sum (L : Loop) (br : Bool) (k : UInt64) (xs : List UInt64) : ∀ (ys : List UInt64) (env : Slot → UInt64),
+    env .k = k → ∃ e, ys.foldl (fun (o : Option Out) x => match o with
+        | some (Out.ok e) => CS.exec xs (if br then .when L.keep.toC (.assign .b (.bin .add (.var .b) L.body.toC))
+            else .assign .b (.bin .add (.var .b) (maskC L.body.toC (.cast L.keep.toC)))) (upd e .x x)
+        | o => o) (some (Out.ok env)) = some (Out.ok e) ∧
+      e .b = ys.foldl (fun a x => a + sel (L.keep.eval k x) (L.body.eval k x)) (env .b)
+  | [], env, _ => ⟨env, rfl, rfl⟩
+  | y :: ys, env, hk => by
+    have hx : upd env .x y .x = y := upd_same _ _ _
+    have hk1 : upd env .x y .k = k := by rw [upd_other _ _ (by decide)]; exact hk
+    have hb1 : upd env .x y .b = env .b := upd_other _ _ (by decide)
+    have and0 : L.body.eval k y &&& 0 = 0 := UInt64.toBitVec_inj.1 (by
+      show (L.body.eval k y).toBitVec &&& (0 : UInt64).toBitVec = (0 : UInt64).toBitVec
+      rw [show (0 : UInt64).toBitVec = 0#64 by decide]; exact BitVec.and_zero)
+    have and1 : L.body.eval k y &&& 18446744073709551615 = L.body.eval k y := UInt64.toBitVec_inj.1 (by
+      show (L.body.eval k y).toBitVec &&& (18446744073709551615 : UInt64).toBitVec = (L.body.eval k y).toBitVec
+      rw [show (18446744073709551615 : UInt64).toBitVec = BitVec.allOnes 64 by decide]; exact BitVec.and_allOnes)
+    let env2 := upd (upd env .x y) .b (env .b + sel (L.keep.eval k y) (L.body.eval k y))
+    have hstep : CS.exec xs (if br then .when L.keep.toC (.assign .b (.bin .add (.var .b) L.body.toC))
+        else .assign .b (.bin .add (.var .b) (maskC L.body.toC (.cast L.keep.toC)))) (upd env .x y) =
+        some (.ok env2) := by
+      cases br
+      · have := word_step (upd env .x y) L k y hx hk1
+        generalize maskC L.body.toC (.cast L.keep.toC) = M at this ⊢
+        simp [CS.exec, CE.eval, this, hb1, Op.eval, env2]
+      · have hp := P.toC_eval (upd env .x y) k y hx hk1 L.keep
+        have he := E.toC_eval (upd env .x y) k y hx hk1 L.body
+        generalize L.keep.toC = PC at hp ⊢
+        generalize L.body.toC = EC at he ⊢
+        by_cases h : L.keep.eval k y
+        · simp [CS.exec, CE.eval, hp, h, he, hb1, Op.eval, env2, sel, and1]
+        · simp only [if_true, CS.exec, hp, h, env2, sel]
+          simp only [Bool.false_eq_true, if_false, ↓reduceIte, Option.some.injEq, Out.ok.injEq]
+          funext t; by_cases ht : t = .b
+          · subst ht; simp only [upd_same, hb1, and0]
+            rw [show (0 : UInt64) - 0 = 0 from rfl, and0, u64Laws.comm, u64Laws.zero_add]
+          · rw [upd_other _ _ ht]
+    have hk2 : env2 .k = k := by simp only [env2]; rw [upd_other _ _ (by decide)]; exact hk1
+    obtain ⟨e, he, heb⟩ := each_sum L br k xs ys env2 hk2
+    refine ⟨e, ?_, ?_⟩
+    · simp only [List.foldl_cons]; rw [hstep]; exact he
+    · rw [heb, List.foldl_cons]; simp [env2]
+
+/-- the printed range-for statements leave `b` = the proved sum, so `return b * scale` returns `cRunR` -/
+theorem printed_range_cs (L : Loop) (br : Bool) (k : UInt64) (xs : Array UInt64) (env : Slot → UInt64)
+    (hk : env .k = k) (hb : env .b = 0) :
+    ∃ e, (L.rangeCS br).exec xs.toList env = some (.ok e) ∧ e .b * L.scale.eval k 0 = L.cRunR k xs := by
+  obtain ⟨e, he, heb⟩ := each_sum L br k xs.toList xs.toList env hk
+  exact ⟨e, he, by rw [heb, hb, Loop.cRunR]⟩
+
+/-- and for the generator's loops, that is the `Iter` chain -/
+theorem printed_range_chain (lanes : Nat) (q : Pipe) (br : Bool) (k : UInt64) (xs : Array UInt64)
+    (env : Slot → UInt64) (hk : env .k = k) (hb : env .b = 0) :
+    ∃ e, ((opt lanes q).rangeCS br).exec xs.toList env = some (.ok e) ∧
+      e .b * (opt lanes q).scale.eval k 0 = q.run k xs := by
+  obtain ⟨e, he, h⟩ := printed_range_cs _ br k xs env hk hb
+  exact ⟨e, he, h.trans (printed_range lanes q k xs)⟩
+end stmts
+
 end Iter.Gen

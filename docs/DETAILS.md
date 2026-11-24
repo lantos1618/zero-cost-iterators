@@ -157,7 +157,7 @@ the switch condition and requires it to pass.
 
 `bench.cpp`'s `provedU`, `provedC`, `provedMax`, `provedF`, `provedA` and `adaptA` come from that header (`count_correct`
 and `red_correct` cover the word `count` and `min?`/`max?` loops; `printed_find` and `findPipe_gen` cover the
-block search `provedF`, for every block size).
+block search `provedF`, for every block size). The range-for word loops and the `Result` function (`provedCheck`) are printed from C statement trees (`Iter/CStmt.lean`) and covered by `printed_range_cs`, `printed_range_chain` and `printed_chain`.
 
 **CLI (`iter/TaskCore.lean`).** `logPipe_spec`, `salesPipe_spec`, `salesPipe_keys` and `manifestPipe_spec`
 are one-line compositions of the lemmas above. `entryBad_trace`: tracing doesn't change the answer.

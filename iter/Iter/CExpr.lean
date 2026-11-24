@@ -12,6 +12,7 @@ inductive Slot where
   | x | k | b
   | fld (i : Nat)
   | prm (i : Nat)
+deriving DecidableEq
 
 inductive Op where
   | add | sub | mul | xor | band | bor | mod | div | eq | lt | ne | ge

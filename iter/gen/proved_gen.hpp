@@ -205,31 +205,39 @@ __attribute__((noinline)) static std::uint64_t provedU_db8(const std::vector<std
 }
 
 __attribute__((noinline)) static std::uint64_t provedU_rb(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
-  (void)k;
-  std::uint64_t acc = 0;
-  for (std::uint64_t x : xs) if ((((x ^ k) % 3ULL) == 0ULL)) acc += x;
-  return acc * 2ULL;
+  std::uint64_t b = 0;
+  for (std::uint64_t x : xs) {
+    if ((((x ^ k) % 3ULL) == 0ULL)) {
+      b = (b + x);
+    }
+  }
+  return b * 2ULL;
 }
 
 __attribute__((noinline)) static std::uint64_t provedU_rm(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
-  (void)k;
-  std::uint64_t acc = 0;
-  for (std::uint64_t x : xs) acc += (x & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL))));
-  return acc * 2ULL;
+  std::uint64_t b = 0;
+  for (std::uint64_t x : xs) {
+    b = (b + (x & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)))));
+  }
+  return b * 2ULL;
 }
 
 __attribute__((noinline)) static std::uint64_t provedU_drb(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
-  (void)k;
-  std::uint64_t acc = 0;
-  for (std::uint64_t x : xs) if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) acc += x;
-  return acc * 2ULL;
+  std::uint64_t b = 0;
+  for (std::uint64_t x : xs) {
+    if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) {
+      b = (b + x);
+    }
+  }
+  return b * 2ULL;
 }
 
 __attribute__((noinline)) static std::uint64_t provedU_drm(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
-  (void)k;
-  std::uint64_t acc = 0;
-  for (std::uint64_t x : xs) acc += (x & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL))));
-  return acc * 2ULL;
+  std::uint64_t b = 0;
+  for (std::uint64_t x : xs) {
+    b = (b + (x & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)))));
+  }
+  return b * 2ULL;
 }
 
 static const WordCand provedU_cands[] = {{"m1", &provedU_m1}, {"b1", &provedU_b1}, {"m2", &provedU_m2}, {"b2", &provedU_b2}, {"m4", &provedU_m4}, {"b4", &provedU_b4}, {"m8", &provedU_m8}, {"b8", &provedU_b8}, {"dm1", &provedU_dm1}, {"db1", &provedU_db1}, {"dm2", &provedU_dm2}, {"db2", &provedU_db2}, {"dm4", &provedU_dm4}, {"db4", &provedU_db4}, {"dm8", &provedU_dm8}, {"db8", &provedU_db8}, {"rb", &provedU_rb}, {"rm", &provedU_rm}, {"drb", &provedU_drb}, {"drm", &provedU_drm}};
@@ -428,31 +436,39 @@ __attribute__((noinline)) static std::uint64_t provedC_db8(const std::vector<std
 }
 
 __attribute__((noinline)) static std::uint64_t provedC_rb(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
-  (void)k;
-  std::uint64_t acc = 0;
-  for (std::uint64_t x : xs) if ((((x ^ k) % 3ULL) == 0ULL)) acc += 1ULL;
-  return acc * 1ULL;
+  std::uint64_t b = 0;
+  for (std::uint64_t x : xs) {
+    if ((((x ^ k) % 3ULL) == 0ULL)) {
+      b = (b + 1ULL);
+    }
+  }
+  return b * 1ULL;
 }
 
 __attribute__((noinline)) static std::uint64_t provedC_rm(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
-  (void)k;
-  std::uint64_t acc = 0;
-  for (std::uint64_t x : xs) acc += (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL))));
-  return acc * 1ULL;
+  std::uint64_t b = 0;
+  for (std::uint64_t x : xs) {
+    b = (b + (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) % 3ULL) == 0ULL)))));
+  }
+  return b * 1ULL;
 }
 
 __attribute__((noinline)) static std::uint64_t provedC_drb(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
-  (void)k;
-  std::uint64_t acc = 0;
-  for (std::uint64_t x : xs) if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) acc += 1ULL;
-  return acc * 1ULL;
+  std::uint64_t b = 0;
+  for (std::uint64_t x : xs) {
+    if ((((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)) {
+      b = (b + 1ULL);
+    }
+  }
+  return b * 1ULL;
 }
 
 __attribute__((noinline)) static std::uint64_t provedC_drm(const std::vector<std::uint64_t>& xs, std::uint64_t k) {
-  (void)k;
-  std::uint64_t acc = 0;
-  for (std::uint64_t x : xs) acc += (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL))));
-  return acc * 1ULL;
+  std::uint64_t b = 0;
+  for (std::uint64_t x : xs) {
+    b = (b + (1ULL & (0ULL - ((std::uint64_t)(((x ^ k) * 12297829382473034411ULL) < 6148914691236517206ULL)))));
+  }
+  return b * 1ULL;
 }
 
 static const WordCand provedC_cands[] = {{"m1", &provedC_m1}, {"b1", &provedC_b1}, {"m2", &provedC_m2}, {"b2", &provedC_b2}, {"m4", &provedC_m4}, {"b4", &provedC_b4}, {"m8", &provedC_m8}, {"b8", &provedC_b8}, {"dm1", &provedC_dm1}, {"db1", &provedC_db1}, {"dm2", &provedC_dm2}, {"db2", &provedC_db2}, {"dm4", &provedC_dm4}, {"db4", &provedC_db4}, {"dm8", &provedC_dm8}, {"db8", &provedC_db8}, {"rb", &provedC_rb}, {"rm", &provedC_rm}, {"drb", &provedC_drb}, {"drm", &provedC_drm}};
@@ -628,3 +644,15 @@ __attribute__((noinline)) static std::optional<std::pair<std::size_t, std::uint6
 
 struct FindCand { const char* tag; std::optional<std::pair<std::size_t, std::uint64_t>> (*f)(const std::vector<std::uint64_t>&, std::uint64_t); };
 static const FindCand provedF_cands[] = {{"plain", &provedF_plain}, {"blocks", &provedF_blocks}};
+
+// Result chains (Iter/Res.lean). Iter.Res.checkChain_gen proves this function computes the and_then chain
+// Iter.Res.check; ok = 1 carries the value, ok = 0 the error code.
+struct Res { std::uint64_t ok, val; };
+__attribute__((noinline)) static Res provedCheck(std::uint64_t x, std::uint64_t k) {
+  if (!(x < 1000000000000ULL)) return Res{0, 1ULL};
+  x = ((x * 10ULL) + k);
+  if (!((x % 7ULL) < 6ULL)) return Res{0, 2ULL};
+  x = (x ^ 1540483477ULL);
+  if (!((x % 97ULL) < 96ULL)) return Res{0, 3ULL};
+  return Res{1, x};
+}

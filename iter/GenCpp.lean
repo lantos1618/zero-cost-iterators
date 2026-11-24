@@ -30,7 +30,10 @@ def main : IO Unit := do
     "// Iter.Gen.findPipe_gen proves both loops equal to enumerate -> find? (x > k), for every block size.\n" ++
     findToCpp findPipe 0 "provedF_plain" ++ "\n\n" ++ findToCpp findPipe 32 "provedF_blocks" ++ "\n\n" ++
     "struct FindCand { const char* tag; std::optional<std::pair<std::size_t, std::uint64_t>> (*f)(const std::vector<std::uint64_t>&, std::uint64_t); };\n" ++
-    "static const FindCand provedF_cands[] = {{\"plain\", &provedF_plain}, {\"blocks\", &provedF_blocks}};\n")
+    "static const FindCand provedF_cands[] = {{\"plain\", &provedF_plain}, {\"blocks\", &provedF_blocks}};\n\n" ++
+    "// Result chains (Iter/Res.lean). Iter.Res.checkChain_gen proves this function computes the and_then chain\n" ++
+    "// Iter.Res.check; ok = 1 carries the value, ok = 0 the error code.\n" ++
+    "struct Res { std::uint64_t ok, val; };\n" ++ Iter.Res.check.toCpp "provedCheck" ++ "\n")
 where
   fs := ["e.salary", "(std::uint64_t)e.active"]
   q6fs := ["e.date", "e.disc", "e.qty", "e.price"]

@@ -180,6 +180,8 @@ Nothing else: no `take`, `enumerate` or user functions, no strings in expression
 | C++ text → machine code | **trusted**: GCC |
 | count as `Nat` (Lean) vs `uint64_t` (C++) | agree below 2^64 rows |
 | 0 lanes | Lean allows it; the printer emits 1 lane, same sum; covered by the fuzz |
+| range-for word loops as C statement trees (`Iter/CStmt.lean`) | proved: `printed_range_cs`, `printed_range_chain` (the printed `for (x : xs)` body, as a `CS` tree, leaves the proved sum in `b`); only `CS.print` and GCC trusted for these |
+| `Result` chain function (`provedCheck`) | proved: `printed_chain`, `checkChain_gen`; only `CS.print`/`CE.print` and GCC trusted |
 | block search (`provedF`) | proved: `findToCpp` prints it, `cFind` models it, `printed_find` proves it equals `enumerate → find?` for every block size |
 
 `Loop.cRun` models the printed word loop one C++ loop per Lean function (`rounds`, `inner`, `tail`, a `bump`
