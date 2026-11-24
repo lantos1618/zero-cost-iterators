@@ -1,6 +1,6 @@
 # zero-cost-iterators
 
-Chain `filter`, `map`, `take`, `takeWhile`, `drop`, `dropWhile`, `enumerate` and `zip` (with an array) over an
+Chain `filter`, `map`, `take`, `takeWhile`, `drop`, `dropWhile`, `stride`, `enumerate` and `zip` (with an array) over an
 array or list, then finish with `foldl`, `find?`, `count`, `any`, `all`, `contains`, `min?`, `max?`,
 `groupFold` or a plain `for` loop. The chain runs as one loop with no intermediate lists, and Lean proves it
 computes exactly what the step-by-step list program computes.

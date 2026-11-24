@@ -184,6 +184,14 @@ excluded) and fails if any uses an axiom beyond `propext`, `Classical.choice` an
 - `take` and `enumerate` carry their counter in a pair with the accumulator. In Lean 4.15's output this pair,
   and the `(index, item)` pair, are heap cells per item: `enumerate → find?` is about 7× slower than a hand
   loop. The cost model does not cover these two adapters.
+- Array sources `xs.iterFrom i` (= `xs.iter.drop i`) and `xs.iterIdx` (= `xs.iter.enumerate`) take the
+  counter from the array loop's own index; `denotes_iterFrom`/`denotes_iterIdx` prove the same meaning.
+  `iterFrom` cuts `drop 1 → dropWhile → filter → count` from 16 to 5 allocation sites and 6.2 to 5.6 ns per
+  item (hand loop 5.3; the rest is `dropWhile`'s flag). `iterIdx` does not help: 12.4 ns vs 1.9 for the
+  hand loop, because the `(index, item)` pair and the boxed `UInt64` are still built for every item before
+  the test, then freed. `check_c.py` counts allocation sites, not allocations per item, so it reports
+  `iterF2` equal to the hand loop; the timing is the evidence here.
+- `stride n` keeps items `0, n, 2n, …` (`Denotes.stride`); its skip counter is the same kind of pair.
 - `groupFold` uses an association list: O(keys) work per item.
 - The CLI reads each file whole before the pipeline runs, so early exit saves only validation calls.
 - No parallel backend.

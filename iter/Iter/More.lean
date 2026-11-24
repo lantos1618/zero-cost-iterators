@@ -3,7 +3,7 @@ import Iter.Basic
 /-!
 # More adapters and terminals
 
-`takeWhile`, `drop`, `dropWhile`, `zip` with an array, and the terminals `count`, `any`, `all`, `contains`, `min?`, `max?`.
+`takeWhile`, `drop`, `dropWhile`, `stride`, `zip` with an array, and the terminals `count`, `any`, `all`, `contains`, `min?`, `max?`.
 Each adapter keeps at most a counter or a flag next to the accumulator, so a chain stays one loop with no
 intermediate collection; each has a `Denotes` theorem giving its `List` meaning, effects and early exit
 included. `any`, `all`, `contains` and `takeWhile` stop pulling the source as soon as the answer is known.
@@ -153,6 +153,108 @@ theorem Denotes.zip {β : Type} (h : it.Denotes l) (bs : Array β) : (it.zip bs)
   intro m _ _ δ k b
   show Prod.fst <$> it.fold (zipStep k bs) (b, 0) = _
   rw [h, lfold_zip, List.drop_zero]
+
+/-! ## `stride` -/
+
+/-- items `0, n, 2n, …`; `c` is how many items to skip before the next one -/
+def List.strideFrom {α : Type} (n : Nat) : Nat → List α → List α
+  | _, [] => []
+  | 0, x :: xs => x :: List.strideFrom n (n - 1) xs
+  | c + 1, _ :: xs => List.strideFrom n c xs
+
+@[macro_inline] def strideStep {m : Type → Type} [Monad m] {α δ : Type} (k : δ → α → m (ForInStep δ)) (n : Nat)
+    (s : δ × Nat) (a : α) : m (ForInStep (δ × Nat)) :=
+  match s with
+  | (b, 0) => do
+      match ← k b a with
+      | .done b => pure (.done (b, 0))
+      | .yield b => pure (.yield (b, n - 1))
+  | (b, c + 1) => pure (.yield (b, c))
+
+/-- every `n`th item, starting with the first, like `std::views::stride`; `stride 0` is `stride 1` -/
+@[inline] def stride (it : Iter α) (n : Nat) : Iter α :=
+  ⟨fun k b => Prod.fst <$> it.fold (strideStep k n) (b, 0)⟩
+
+theorem lfold_stride {m : Type → Type} [Monad m] [LawfulMonad m] {δ : Type} (k : δ → α → m (ForInStep δ))
+    (n : Nat) : ∀ (l : List α) (b : δ) (c : Nat),
+    Prod.fst <$> lfold (strideStep k n) (b, c) l = lfold k b (List.strideFrom n c l)
+  | [], b, c => by cases c <;> simp [lfold, List.strideFrom]
+  | x :: xs, b, 0 => by
+    simp only [lfold, strideStep, List.strideFrom, bind_assoc, map_bind]
+    refine congrArg (k b x >>= ·) (funext fun r => ?_)
+    cases r with
+    | done b' => simp
+    | yield b' => simp only [pure_bind]; exact lfold_stride k n xs b' (n - 1)
+  | x :: xs, b, c + 1 => by
+    simp only [lfold, strideStep, List.strideFrom, pure_bind]
+    exact lfold_stride k n xs b c
+
+theorem Denotes.stride (h : it.Denotes l) (n : Nat) : (it.stride n).Denotes (List.strideFrom n 0 l) := by
+  intro m _ _ δ k b
+  show Prod.fst <$> it.fold (strideStep k n) (b, 0) = _
+  rw [h, lfold_stride]
+
+/-- for example, `stride 3` keeps indices 0, 3 and 6 -/
+example : List.strideFrom 3 0 [0, 1, 2, 3, 4, 5, 6] = [0, 3, 6] := rfl
+
+/-! ## Array sources that skip or number items in the loop itself
+
+`xs.iter.drop n` and `xs.iter.enumerate` carry a counter next to the accumulator, which Lean 4.15's compiled
+C boxes per item. On an array the loop already has an index, so these sources use it instead. -/
+
+@[specialize] def arrLoopIdx {m : Type → Type} [Monad m] {α β : Type} (a : Array α)
+    (k : β → Nat × α → m (ForInStep β)) (i : Nat) (b : β) : m β :=
+  if h : i < a.size then
+    let j := i + 1
+    do
+    match ← k b (i, a[i]) with
+    | .done b => pure b
+    | .yield b => arrLoopIdx a k j b
+  else pure b
+termination_by a.size - i
+
+theorem arrLoopIdx_eq {m : Type → Type} [Monad m] {α β : Type} (a : Array α) (k : β → Nat × α → m (ForInStep β)) :
+    ∀ n i b, a.size - i = n → arrLoopIdx a k i b = lfold k b ((a.toList.drop i).enumFrom i) := by
+  intro n
+  induction n with
+  | zero =>
+    intro i b h
+    unfold arrLoopIdx
+    rw [dif_neg (by omega), List.drop_eq_nil_of_le (by simp; omega)]
+    rfl
+  | succ n ih =>
+    intro i b h
+    have hi : i < a.size := by omega
+    unfold arrLoopIdx
+    rw [dif_pos hi, List.drop_eq_getElem_cons (by simpa using hi), List.enumFrom_cons]
+    simp only [lfold, Array.getElem_toList]
+    refine congrArg (k b (i, a[i]) >>= ·) (funext fun r => ?_)
+    cases r with
+    | done b' => rfl
+    | yield b' => exact ih (i + 1) b' (by omega)
+
+/-- the items from index `i` on: `xs.iter.drop i` without a counter -/
+@[inline] def _root_.Array.iterFrom {α : Type} (a : Array α) (i : Nat) : Iter α := ⟨fun k b => Iter.arrLoop a k i b⟩
+
+/-- the items with their indices: `xs.iter.enumerate` without a counter -/
+@[inline] def _root_.Array.iterIdx {α : Type} (a : Array α) : Iter (Nat × α) := ⟨fun k b => Iter.arrLoopIdx a k 0 b⟩
+
+theorem denotes_iterFrom {α : Type} (a : Array α) (i : Nat) : (a.iterFrom i).Denotes (a.toList.drop i) :=
+  fun _ _ _ _ k b => arrLoop_eq a k _ i b rfl
+
+theorem denotes_iterIdx {α : Type} (a : Array α) : a.iterIdx.Denotes a.toList.enum := by
+  intro m _ _ β k b
+  show arrLoopIdx a k 0 b = _
+  rw [arrLoopIdx_eq a k _ 0 b rfl, List.drop_zero]; rfl
+
+/-- the same meaning as the adapters they replace -/
+theorem iterFrom_drop {α : Type} (a : Array α) (i : Nat) :
+    (a.iterFrom i).Denotes (a.toList.drop i) ∧ (a.iter.drop i).Denotes (a.toList.drop i) :=
+  ⟨denotes_iterFrom a i, (denotes_array a).drop i⟩
+
+theorem iterIdx_enumerate {α : Type} (a : Array α) :
+    a.iterIdx.Denotes a.toList.enum ∧ a.iter.enumerate.Denotes a.toList.enum :=
+  ⟨denotes_iterIdx a, (denotes_array a).enumerate⟩
 
 /-! ## Terminals -/
 

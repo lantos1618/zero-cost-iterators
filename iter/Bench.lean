@@ -35,6 +35,10 @@ termination_by xs.size - i
 @[noinline] def iterD (xs : Array UInt64) (k : UInt64) : Nat :=
   (xs.iter.drop 1 |>.dropWhile (fun x => x % 7 != k % 7) |>.filter (fun x => (x ^^^ k) % 3 == 0)).count
 
+/-- the same, with `drop 1` done by the array loop's own index (`Array.iterFrom`) -/
+@[noinline] def iterD2 (xs : Array UInt64) (k : UInt64) : Nat :=
+  (xs.iterFrom 1 |>.dropWhile (fun x => x % 7 != k % 7) |>.filter (fun x => (x ^^^ k) % 3 == 0)).count
+
 def handDgo (xs : Array UInt64) (k : UInt64) (i : Nat) (dropping : Bool) (n : Nat) : Nat :=
   if h : i < xs.size then
     let x := xs[i]
@@ -69,6 +73,10 @@ termination_by es.size - i
 /-- enumerate → find (early exit) -/
 @[noinline] def iterF (xs : Array UInt64) (t : UInt64) : Option (Nat × UInt64) :=
   xs.iter.enumerate.find? (·.2 > t)
+
+/-- the same, numbered by the array loop's own index (`Array.iterIdx`) -/
+@[noinline] def iterF2 (xs : Array UInt64) (t : UInt64) : Option (Nat × UInt64) :=
+  xs.iterIdx.find? (·.2 > t)
 
 def handFgo (xs : Array UInt64) (t : UInt64) (i : Nat) : Option (Nat × UInt64) :=
   if h : i < xs.size then
@@ -112,8 +120,9 @@ def main (args : List String) : IO UInt32 := do
   let ok1 := iterU xs 0 == handU xs 0 && handU xs 1 == stagedU xs 1 && iterU xs 1 == handU xs 1
   let a := iterA es 50000 90; let b := handA es 50000 90
   let ok2 := a.count == b.count && a.total == b.total && a.first == b.first && a.last == b.last
-  let ok3 := iterF xs big == handF xs big && iterF xs (big + 1) == handF xs (big + 1)
-  let ok4 := iterD xs 0 == handD xs 0 && iterD xs 5 == handD xs 5
+  let ok3 := iterF xs big == handF xs big && iterF xs (big + 1) == handF xs (big + 1) &&
+    iterF2 xs big == handF xs big && iterF2 xs (big + 1) == handF xs (big + 1)
+  let ok4 := iterD xs 0 == handD xs 0 && iterD xs 5 == handD xs 5 && iterD2 xs 0 == handD xs 0 && iterD2 xs 5 == handD xs 5
   IO.println s!"BENCH items={n} results_equal={ok1 && ok2 && ok3 && ok4}"
   let reps := 20
   for round in [1:3] do
@@ -125,6 +134,8 @@ def main (args : List String) : IO UInt32 := do
     bench "iterA" n reps (fun r => iterA es (50000 + r % 2) 90) (fun r => r.total.toUInt64)
     bench "handF_miss" n reps (fun r => handF xs (big + 1 + r.toUInt64)) (fun r => (r.map (·.2)).getD 0)
     bench "iterF_miss" n reps (fun r => iterF xs (big + 1 + r.toUInt64)) (fun r => (r.map (·.2)).getD 0)
+    bench "iterF2_miss" n reps (fun r => iterF2 xs (big + 1 + r.toUInt64)) (fun r => (r.map (·.2)).getD 0)
     bench "handD" n reps (fun r => handD xs r.toUInt64) (·.toUInt64)
     bench "iterD" n reps (fun r => iterD xs r.toUInt64) (·.toUInt64)
+    bench "iterD2" n reps (fun r => iterD2 xs r.toUInt64) (·.toUInt64)
   return if ok1 && ok2 && ok3 && ok4 then 0 else 1

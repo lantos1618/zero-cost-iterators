@@ -30,12 +30,14 @@ def reach(fn):
 def counts(fn):
     fs = reach(fn)
     text = "".join(bodies[f] for f in fs)
-    return dict(alloc=len(re.findall(r'lean_alloc_\w+\(', text)),
+    return dict(alloc=len(re.findall(r'lean_alloc_\w+\(|lean_box_(?:uint64|float|usize)\(', text)),
                 closure=len(re.findall(r'lean_alloc_closure\(', text)),
                 apply=len(re.findall(r'lean_apply_\w+\(', text)), fns=len(fs))
 # (Iter chain, hand loop, gated). enumerate, drop and dropWhile are reported but not gated: the
 # (accumulator, counter/flag) pair is a heap cell in Lean 4.15's output (a known gap, see docs/DETAILS.md).
-pairs = [("l_iterU", "l_handU", True), ("l_iterA", "l_handA", True), ("l_iterF", "l_handF", False), ("l_iterD", "l_handD", False)]
+# iterF2/iterD2 use the array sources `iterIdx`/`iterFrom`; boxing a UInt64 counts as an allocation site.
+pairs = [("l_iterU", "l_handU", True), ("l_iterA", "l_handA", True), ("l_iterF", "l_handF", False), ("l_iterD", "l_handD", False),
+         ("l_iterF2", "l_handF", False), ("l_iterD2", "l_handD", False)]
 bad = 0
 print(f"{'function':10} {'alloc sites':>11} {'closures':>8} {'lean_apply':>10} {'C fns':>6}")
 for it, hd, gated in pairs:
