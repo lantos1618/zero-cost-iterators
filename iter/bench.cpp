@@ -1,6 +1,6 @@
 // C++20 baseline for Bench.lean: the same data and the same three pipelines, each written three ways:
-// a hand loop, a lazy std::views chain (fused, like Iter), an eager std::vector per stage (staged), and for the
-// two folds a "proved" loop that applies the rewrites proved in iter/Iter/Rewrite.lean.
+// a hand loop, a lazy std::views chain (fused, like Iter), an eager std::vector per stage (staged), and a
+// "proved" loop that applies rewrites proved in iter/Iter/Rewrite.lean.
 // Build: g++ -O2 -std=c++20 bench.cpp -o bench_cpp
 #include <algorithm>
 #include <chrono>
@@ -95,12 +95,16 @@ NOINLINE Hit eagerF(const std::vector<u64>& xs, u64 t) {
 // head_filter, getLast_filter). The proofs cover + on 64-bit words; the C++ transcription is checked by the
 // results_equal test, not proved.
 NOINLINE u64 provedU(const std::vector<u64>& xs, u64 k) {
-  u64 acc[4] = {0, 0, 0, 0};
+  // 8 lanes (sum_lanes), branch-free mask (sum_select, select_mask), and the map's *2 applied once to the
+  // total instead of per item (sum_mul)
+  u64 acc[8] = {0, 0, 0, 0, 0, 0, 0, 0};
   std::size_t n = xs.size(), i = 0;
-  for (; i + 4 <= n; i += 4)
-    for (int j = 0; j < 4; ++j) { u64 x = xs[i + j]; acc[j] += (x * 2) & (0 - (u64)((x ^ k) % 3 == 0)); }
-  for (; i < n; ++i) { u64 x = xs[i]; acc[i % 4] += (x * 2) & (0 - (u64)((x ^ k) % 3 == 0)); }
-  return acc[0] + acc[1] + acc[2] + acc[3];
+  for (; i + 8 <= n; i += 8)
+    for (int j = 0; j < 8; ++j) { u64 x = xs[i + j]; acc[j] += x & (0 - (u64)((x ^ k) % 3 == 0)); }
+  for (; i < n; ++i) { u64 x = xs[i]; acc[i % 8] += x & (0 - (u64)((x ^ k) % 3 == 0)); }
+  u64 total = 0;
+  for (u64 a : acc) total += a;
+  return 2 * total;
 }
 NOINLINE Summ provedA(const std::vector<Emp>& es, u64 minSal, u64 pct) {
   auto keep = [minSal](const Emp& e) { return e.active & (e.salary >= minSal); };  // & not &&: no branch
@@ -119,6 +123,19 @@ NOINLINE Summ provedA(const std::vector<Emp>& es, u64 minSal, u64 pct) {
   for (std::size_t j = 0; j < n; ++j) if (keep(es[j])) { s.first = es[j].name; break; }
   for (std::size_t j = n; j-- > 0;) if (keep(es[j])) { s.last = es[j].name; break; }
   return s;
+}
+
+NOINLINE Hit provedF(const std::vector<u64>& xs, u64 t) {
+  // blocks of 32 (find_blocks): a branch-free "any match?" per block, then a search inside the one block that has it
+  constexpr std::size_t B = 32;
+  std::size_t n = xs.size(), i = 0;
+  for (; i + B <= n; i += B) {
+    u64 any = 0;
+    for (std::size_t j = 0; j < B; ++j) any |= (u64)(xs[i + j] > t);
+    if (any) for (std::size_t j = 0; j < B; ++j) if (xs[i + j] > t) return std::pair{i + j, xs[i + j]};
+  }
+  for (; i < n; ++i) if (xs[i] > t) return std::pair{i, xs[i]};
+  return std::nullopt;
 }
 
 template <class F>
@@ -154,7 +171,8 @@ int main(int argc, char** argv) {
   bool ok = handU(xs, 1) == viewsU(xs, 1) && handU(xs, 1) == eagerU(xs, 1) &&
             same(handA(es, 50000, 90), viewsA(es, 50000, 90)) && same(handA(es, 50000, 90), eagerA(es, 50000, 90)) &&
             handF(xs, big) == viewsF(xs, big) && handF(xs, big) == eagerF(xs, big) && !viewsF(xs, big + 1) &&
-            handU(xs, 1) == provedU(xs, 1) && handU(xs, 2) == provedU(xs, 2) &&
+            handU(xs, 1) == provedU(xs, 1) && handU(xs, 2) == provedU(xs, 2) && handU(xs, 7) == provedU(xs, 7) &&
+            handF(xs, big) == provedF(xs, big) && handF(xs, xs[999]) == provedF(xs, xs[999]) && !provedF(xs, big + 1) &&
             same(handA(es, 50000, 90), provedA(es, 50000, 90)) && same(handA(es, 250000, 90), provedA(es, 250000, 90));
   std::printf("BENCH cpp items=%zu results_equal=%s\n", n, ok ? "true" : "false");
 
@@ -173,6 +191,7 @@ int main(int argc, char** argv) {
     bench("cpp_handF_miss", n, reps, [&](int r) { return hitVal(handF(xs, big + 1 + r)); });
     bench("cpp_viewsF_miss", n, reps, [&](int r) { return hitVal(viewsF(xs, big + 1 + r)); });
     bench("cpp_eagerF_miss", n, reps, [&](int r) { return hitVal(eagerF(xs, big + 1 + r)); });
+    bench("cpp_provedF_miss", n, reps, [&](int r) { return hitVal(provedF(xs, big + 1 + r)); });
   }
   return ok ? 0 : 1;
 }

@@ -117,17 +117,19 @@ identity `0` (`AddLaws`), instantiated for `UInt64` (`u64Laws`, wrapping like C+
 | `sum_select` | sum of `f` over the kept items = sum of `p x ? f x : 0` over all items |
 | `select_mask` | on `UInt64`, `v &&& (0 - (b ? 1 : 0)) = b ? v : 0` |
 | `sum_lanes` | for any `k`, sending item `j` to accumulator `j % k` and adding the lanes gives the sum |
-| `chain_lanes` | the `Iter` chain `filter → map → foldl (+)` equals the select + lanes loop |
+| `sum_mul` | on `UInt64`, the sum of `x * c` is the sum of `x`, times `c` |
+| `find_blocks` | for any split into blocks, testing each block with `any` and searching only the first block that matches is `find?` |
+| `chain_lanes`, `chain_lanes_mul`, `chain_find_blocks` | the `Iter` chains equal the select + lanes loop, the lanes loop with one final multiplication, and the block search |
 | `summary_split` | folding (count, total, first, last) = (length, sum, first row, last row) |
 | `head_filter`, `getLast_filter` | the first / last kept row is a forward / backward `find?` |
 
-`bench.cpp`'s `provedU` and `provedA` are hand transcriptions of these loops; they are compared with the hand
+`bench.cpp`'s `provedU`, `provedA` and `provedF` are hand transcriptions of these loops; they are compared with the hand
 loops on several inputs (`results_equal`), not proved.
 
 **CLI (`iter/TaskCore.lean`).** `logPipe_spec`, `salesPipe_spec`, `salesPipe_keys` and `manifestPipe_spec`
 are one-line compositions of the lemmas above. `entryBad_trace`: tracing doesn't change the answer.
 
-`iter/TaskAudit.lean` lists every theorem in `Iter` and `TaskCore` (140, auto-generated equation lemmas
+`iter/TaskAudit.lean` lists every theorem in `Iter` and `TaskCore` (146, auto-generated equation lemmas
 excluded) and fails if any uses an axiom beyond `propext`, `Classical.choice` and `Quot.sound`. No `sorry`.
 
 ## What is checked, not proved
@@ -156,9 +158,9 @@ excluded) and fails if any uses an axiom beyond `propext`, `Classical.choice` an
 
 `iter/Bench.lean` and `iter/bench.cpp`, both run by `BENCH=1 ./replay.sh`: the same generated data, 1,000,000
 items, each timing the median of 5 batches of 20 calls after a warm-up call; two rounds, the second reported in
-the README. Each call varies one argument so the compiler cannot hoist it out of the timing loop. C++ is built
-with `g++ -O2 -std=c++20` (GCC 11.4: `std::views::filter`/`transform`/`iota`, no C++23 `enumerate`), and
-`enumerate` is written as `iota | transform`. Checksums agree across all 16 variants. One VM, not repeated across
+the README. Each call varies one argument so the compiler cannot hoist it out of the timing loop. C++ is built twice,
+with `g++ -O2 -std=c++20` and with `-O3 -march=native` (GCC 11.4: `std::views::filter`/`transform`/`iota`, no C++23 `enumerate`), and
+`enumerate` is written as `iota | transform`. Checksums agree across all variants. One VM, not repeated across
 machines; round-to-round noise on this VM was up to 2× on single rows.
 
 ## Rerunning every check

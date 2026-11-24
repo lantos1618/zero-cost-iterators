@@ -11,7 +11,9 @@ written in C++ (see `bench.cpp`, `proved*`) with the same meaning:
   `k`, and the lanes are added at the end; independent lanes remove the loop-carried dependency;
 * `summary_split`: a running summary (count, total, first, last) splits into a count, a sum, a forward
   search and a backward search, each of which can run on its own;
-* `chain_lanes`: the `Iter` chain `filter → map → foldl (+)` equals the select + lanes loop.
+* `sum_mul`: `map (· * c)` before a sum is one multiplication after it;
+* `find_blocks`: a search can test whole blocks for "any match" and search only the block that has one;
+* `chain_lanes`, `chain_lanes_mul`, `chain_find_blocks`: the `Iter` chains equal those loops.
 Holds for `UInt64` (wrapping, like C++ `uint64_t`) and `Nat`.
 -/
 namespace Iter.Rewrite
@@ -100,6 +102,53 @@ theorem chain_lanes {σ : Type} (h : AddLaws α) (xs : Array σ) (p : σ → Boo
     (xs.iter.filter p |>.map f).foldl 0 (· + ·)
       = sumL ((xs.toList.map fun x => if p x then f x else 0).foldl rot (List.replicate k 0)) := by
   rw [(((denotes_array xs).filter p).map f).foldl, sum_lanes h, ← sum_select h]; rfl
+
+/-! ## Pulling a constant factor out of a sum -/
+
+theorem u64_add_mul (a b c : UInt64) : (a + b) * c = a * c + b * c :=
+  UInt64.toBitVec_inj.1 (by
+    show (a.toBitVec + b.toBitVec) * c.toBitVec = a.toBitVec * c.toBitVec + b.toBitVec * c.toBitVec
+    rw [BitVec.mul_comm, BitVec.mul_add, BitVec.mul_comm c.toBitVec, BitVec.mul_comm c.toBitVec])
+
+theorem u64_zero_mul (c : UInt64) : 0 * c = 0 :=
+  UInt64.toBitVec_inj.1 (by show 0#64 * c.toBitVec = 0#64; rw [BitVec.mul_comm]; exact BitVec.mul_zero)
+
+/-- `map (· * c)` before a sum is one multiplication after it -/
+theorem sum_mul (c : UInt64) : ∀ l : List UInt64, sumL (l.map (· * c)) = sumL l * c
+  | [] => (u64_zero_mul c).symm
+  | x :: xs => by rw [List.map_cons, sumL_cons u64Laws, sumL_cons u64Laws, sum_mul c xs, u64_add_mul]
+
+/-- the word pipeline as `bench.cpp`'s `provedU` runs it: mask, `k` lanes, one multiplication at the end -/
+theorem chain_lanes_mul (xs : Array UInt64) (p : UInt64 → Bool) (c : UInt64) (k : Nat) :
+    (xs.iter.filter p |>.map (· * c)).foldl 0 (· + ·)
+      = sumL ((xs.toList.map fun x => if p x then x else 0).foldl rot (List.replicate k 0)) * c := by
+  rw [(((denotes_array xs).filter p).map _).foldl]
+  show sumL ((xs.toList.filter p).map (· * c)) = _
+  rw [sum_lanes u64Laws, sum_mul, ← List.map_id (xs.toList.filter p), sum_select u64Laws p id]
+  rfl
+
+/-! ## Searching block by block -/
+
+/-- one "any match?" test per block; only the block that has a match is searched item by item -/
+def findBlocks {σ : Type} (p : σ → Bool) : List (List σ) → Option σ
+  | [] => none
+  | b :: bs => if b.any p then b.find? p else findBlocks p bs
+
+/-- any split of the input into blocks gives the plain search -/
+theorem find_blocks {σ : Type} (p : σ → Bool) : ∀ bs : List (List σ), findBlocks p bs = bs.flatten.find? p
+  | [] => rfl
+  | b :: bs => by
+    rw [findBlocks, List.flatten_cons, List.find?_append, ← find_blocks p bs]
+    cases h : b.any p
+    · rw [List.find?_eq_none.2 (List.any_eq_false.1 h)]; rfl
+    · obtain ⟨x, hx, px⟩ := List.any_eq_true.1 h
+      obtain ⟨y, hy⟩ := Option.isSome_iff_exists.1 (List.find?_isSome.2 ⟨x, hx, px⟩)
+      rw [hy]; rfl
+
+/-- the `enumerate → find?` chain equals the block search over any blocking of the numbered items -/
+theorem chain_find_blocks {σ : Type} (xs : Array σ) (p : Nat × σ → Bool) (bs : List (List (Nat × σ)))
+    (h : bs.flatten = xs.toList.enum) : xs.iter.enumerate.find? p = findBlocks p bs := by
+  rw [(denotes_array xs).enumerate.find?, find_blocks, h]
 
 /-! ## Splitting a running summary -/
 

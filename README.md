@@ -56,29 +56,44 @@ Every variant returns the same checksum.
 Not covered: the cost model is not formally linked to Lean's compiler, and `enumerate` and `take` still allocate
 in compiled code (the last row). See `docs/DETAILS.md` for these limits.
 
-## Better than hand: proved rewrites, pulled into C++
+## Beating C++: proved rewrites, pulled into C++
 
-Lean is the prover, C++ the target. `iter/Iter/Rewrite.lean` proves rewrites that turn a filtered fold into a
-different loop with the same answer, then `bench.cpp` writes that loop in C++ (`proved*`):
+Lean is the prover, C++ the target. `iter/Iter/Rewrite.lean` proves rewrites that turn each pipeline into a
+different loop with the same answer, and `bench.cpp` writes that loop in C++ ("ours"):
 
 - `sum_select`, `select_mask`: the filter becomes a branch-free mask, `acc += v & -(keep ? 1 : 0)`;
 - `sum_lanes`: because `+` on 64-bit words is associative and commutative, item `j` can go to accumulator
-  `j % k`, so the loop has 4 independent sums instead of one chain;
+  `j % k`, so the loop has independent sums instead of one dependency chain;
+- `sum_mul`: `map (· * 2)` before a sum is one multiplication after it;
 - `summary_split`, `head_filter`, `getLast_filter`: a running (count, total, first, last) summary is a count,
-  a sum, a forward search and a backward search, each stopping at its first hit.
+  a sum, a forward search and a backward search, each stopping at its first hit;
+- `find_blocks`: a search can test a whole block for "any match" without branching, and only search inside
+  the block that has one.
 
-| pipeline | C++ hand | C++ proved | |
-|---|---|---|---|
-| `filter → map → sum`, words, `-O2` | 0.76 | 0.86 | no gain |
-| same, `-O3` | 0.86 | 0.75 | 1.1× |
-| `filter → map → summary`, records, `-O2` | 3.97 | 1.80 | **2.2× faster** |
-| same, `-O3` | 3.22 | 1.22 | **2.6× faster** |
+ns per item, 1,000,000 items, `g++ -O2`:
 
-The record summary is where it pays: the hand loop branches on every row and threads four fields through one
-dependency chain, and GCC does not find the split at either level. The word sum gains nothing, because GCC
-already makes the hand loop branch-free. The proofs are about Lean lists and `UInt64`; the C++ transcription
-is written by hand and checked against the hand loop's results, not proved. Small details matter: with `&&`
-instead of `&` in the filter, the 2.2× disappears.
+| pipeline | C++ hand | C++ `std::views` | ours | ours vs the faster of the two |
+|---|---|---|---|---|
+| `filter → map → sum`, words | 0.81 | 3.26 | 0.76 | 1.07× |
+| `filter → map → summary`, records | 4.09 | 4.26 | 1.83 | **2.2×** |
+| `enumerate → find`, no match | 0.52 | 0.29 | 0.40 | 0.7× (slower) |
+
+`g++ -O3 -march=native` (AVX2):
+
+| pipeline | C++ hand | C++ `std::views` | ours | ours vs the faster of the two |
+|---|---|---|---|---|
+| `filter → map → sum`, words | 0.78 | 3.16 | 0.59 | **1.3×** |
+| `filter → map → summary`, records | 3.02 | 3.90 | 1.32 | **2.3×** |
+| `enumerate → find`, no match | 0.53 | 0.33 | 0.25 | **1.3×** |
+
+- **Clear win:** the record summary. The hand loop branches on every row and threads four fields through
+  one chain; GCC does not find the split at either level.
+- **Small win:** the word sum, where GCC already makes the hand loop branch-free.
+- **Tie:** the search. It reads 8 MB per call and is limited by memory, and its times moved by up to 1.8×
+  between runs, so its rows are within noise.
+- **What is proved and what is not:** the proofs are about Lean lists and `UInt64`. The C++ loops are written
+  by hand from them and checked against the hand loops' results, not proved.
+- **Details matter:** with `&&` instead of `&` in the records filter, the 2.2× disappears.
 
 ## Was this worth doing?
 
@@ -104,8 +119,8 @@ Partly. Honest accounting:
   move this goal forward. It is now on the `archive` branch.
 
 Worth it as a small verified library, a precise answer to "is fusion free, and when?", and a source of
-proved rewrites: one of them makes a C++ loop 2.2× faster than the hand-written one. Not worth it as a way to
-make Lean code fast.
+proved rewrites that beat both the hand-written C++ loop and `std::views`: 2.2–2.3× on the record summary,
+1.07–1.3× on the word sum. Not worth it as a way to make Lean code fast.
 
 ## Try it
 
