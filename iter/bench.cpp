@@ -1,5 +1,6 @@
 // C++20 baseline for Bench.lean: the same data and the same three pipelines, each written three ways:
-// a hand loop, a lazy std::views chain (fused, like Iter), and an eager std::vector per stage (staged).
+// a hand loop, a lazy std::views chain (fused, like Iter), an eager std::vector per stage (staged), and for the
+// two folds a "proved" loop that applies the rewrites proved in iter/Iter/Rewrite.lean.
 // Build: g++ -O2 -std=c++20 bench.cpp -o bench_cpp
 #include <algorithm>
 #include <chrono>
@@ -87,6 +88,39 @@ NOINLINE Hit eagerF(const std::vector<u64>& xs, u64 t) {
   return it == numbered.end() ? Hit{} : Hit{*it};
 }
 
+
+// Proved rewrites (iter/Iter/Rewrite.lean), written by hand in C++: the filter becomes a bit-mask select
+// (sum_select, select_mask), the sum is split over 4 independent accumulators, item j in lane j % 4
+// (sum_lanes), and the summary's first/last become a forward and a backward search (summary_split,
+// head_filter, getLast_filter). The proofs cover + on 64-bit words; the C++ transcription is checked by the
+// results_equal test, not proved.
+NOINLINE u64 provedU(const std::vector<u64>& xs, u64 k) {
+  u64 acc[4] = {0, 0, 0, 0};
+  std::size_t n = xs.size(), i = 0;
+  for (; i + 4 <= n; i += 4)
+    for (int j = 0; j < 4; ++j) { u64 x = xs[i + j]; acc[j] += (x * 2) & (0 - (u64)((x ^ k) % 3 == 0)); }
+  for (; i < n; ++i) { u64 x = xs[i]; acc[i % 4] += (x * 2) & (0 - (u64)((x ^ k) % 3 == 0)); }
+  return acc[0] + acc[1] + acc[2] + acc[3];
+}
+NOINLINE Summ provedA(const std::vector<Emp>& es, u64 minSal, u64 pct) {
+  auto keep = [minSal](const Emp& e) { return e.active & (e.salary >= minSal); };  // & not &&: no branch
+  u64 cnt[4] = {0, 0, 0, 0}, tot[4] = {0, 0, 0, 0};
+  std::size_t n = es.size(), i = 0;
+  auto add = [&](std::size_t lane, const Emp& e) {
+    u64 m = 0 - (u64)keep(e);
+    cnt[lane] += 1 & m;
+    tot[lane] += (e.salary * pct / 100) & m;
+  };
+  for (; i + 4 <= n; i += 4) for (int j = 0; j < 4; ++j) add(j, es[i + j]);
+  for (; i < n; ++i) add(i % 4, es[i]);
+  Summ s;
+  s.count = cnt[0] + cnt[1] + cnt[2] + cnt[3];
+  s.total = tot[0] + tot[1] + tot[2] + tot[3];
+  for (std::size_t j = 0; j < n; ++j) if (keep(es[j])) { s.first = es[j].name; break; }
+  for (std::size_t j = n; j-- > 0;) if (keep(es[j])) { s.last = es[j].name; break; }
+  return s;
+}
+
 template <class F>
 static void bench(const char* label, std::size_t n, int reps, F f) {
   volatile u64 warm = f(0); (void)warm;
@@ -119,7 +153,9 @@ int main(int argc, char** argv) {
   auto same = [](Summ a, Summ b) { return a.count == b.count && a.total == b.total && a.first == b.first && a.last == b.last; };
   bool ok = handU(xs, 1) == viewsU(xs, 1) && handU(xs, 1) == eagerU(xs, 1) &&
             same(handA(es, 50000, 90), viewsA(es, 50000, 90)) && same(handA(es, 50000, 90), eagerA(es, 50000, 90)) &&
-            handF(xs, big) == viewsF(xs, big) && handF(xs, big) == eagerF(xs, big) && !viewsF(xs, big + 1);
+            handF(xs, big) == viewsF(xs, big) && handF(xs, big) == eagerF(xs, big) && !viewsF(xs, big + 1) &&
+            handU(xs, 1) == provedU(xs, 1) && handU(xs, 2) == provedU(xs, 2) &&
+            same(handA(es, 50000, 90), provedA(es, 50000, 90)) && same(handA(es, 250000, 90), provedA(es, 250000, 90));
   std::printf("BENCH cpp items=%zu results_equal=%s\n", n, ok ? "true" : "false");
 
   const int reps = 20;
@@ -129,9 +165,11 @@ int main(int argc, char** argv) {
     bench("cpp_handU", n, reps, [&](int r) { return handU(xs, r); });
     bench("cpp_viewsU", n, reps, [&](int r) { return viewsU(xs, r); });
     bench("cpp_eagerU", n, reps, [&](int r) { return eagerU(xs, r); });
+    bench("cpp_provedU", n, reps, [&](int r) { return provedU(xs, r); });
     bench("cpp_handA", n, reps, [&](int r) { return handA(es, 50000 + r % 2, 90).total; });
     bench("cpp_viewsA", n, reps, [&](int r) { return viewsA(es, 50000 + r % 2, 90).total; });
     bench("cpp_eagerA", n, reps, [&](int r) { return eagerA(es, 50000 + r % 2, 90).total; });
+    bench("cpp_provedA", n, reps, [&](int r) { return provedA(es, 50000 + r % 2, 90).total; });
     bench("cpp_handF_miss", n, reps, [&](int r) { return hitVal(handF(xs, big + 1 + r)); });
     bench("cpp_viewsF_miss", n, reps, [&](int r) { return hitVal(viewsF(xs, big + 1 + r)); });
     bench("cpp_eagerF_miss", n, reps, [&](int r) { return hitVal(eagerF(xs, big + 1 + r)); });

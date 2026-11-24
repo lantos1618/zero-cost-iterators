@@ -56,6 +56,30 @@ Every variant returns the same checksum.
 Not covered: the cost model is not formally linked to Lean's compiler, and `enumerate` and `take` still allocate
 in compiled code (the last row). See `docs/DETAILS.md` for these limits.
 
+## Better than hand: proved rewrites, pulled into C++
+
+Lean is the prover, C++ the target. `iter/Iter/Rewrite.lean` proves rewrites that turn a filtered fold into a
+different loop with the same answer, then `bench.cpp` writes that loop in C++ (`proved*`):
+
+- `sum_select`, `select_mask`: the filter becomes a branch-free mask, `acc += v & -(keep ? 1 : 0)`;
+- `sum_lanes`: because `+` on 64-bit words is associative and commutative, item `j` can go to accumulator
+  `j % k`, so the loop has 4 independent sums instead of one chain;
+- `summary_split`, `head_filter`, `getLast_filter`: a running (count, total, first, last) summary is a count,
+  a sum, a forward search and a backward search, each stopping at its first hit.
+
+| pipeline | C++ hand | C++ proved | |
+|---|---|---|---|
+| `filter → map → sum`, words, `-O2` | 0.76 | 0.86 | no gain |
+| same, `-O3` | 0.86 | 0.75 | 1.1× |
+| `filter → map → summary`, records, `-O2` | 3.97 | 1.80 | **2.2× faster** |
+| same, `-O3` | 3.22 | 1.22 | **2.6× faster** |
+
+The record summary is where it pays: the hand loop branches on every row and threads four fields through one
+dependency chain, and GCC does not find the split at either level. The word sum gains nothing, because GCC
+already makes the hand loop branch-free. The proofs are about Lean lists and `UInt64`; the C++ transcription
+is written by hand and checked against the hand loop's results, not proved. Small details matter: with `&&`
+instead of `&` in the filter, the 2.2× disappears.
+
 ## Was this worth doing?
 
 Partly. Honest accounting:
@@ -79,8 +103,9 @@ Partly. Honest accounting:
 - **Cost of getting here.** Most of the earlier work (INT8 kernels, Bend, APL, ten milestone reports) did not
   move this goal forward. It is now on the `archive` branch.
 
-Worth it as a small verified library and a precise answer to "is fusion free, and when?". Not worth it as a
-performance tool.
+Worth it as a small verified library, a precise answer to "is fusion free, and when?", and a source of
+proved rewrites: one of them makes a C++ loop 2.2× faster than the hand-written one. Not worth it as a way to
+make Lean code fast.
 
 ## Try it
 
@@ -99,7 +124,7 @@ the first bad line in a file manifest.
 
 | path | contents |
 |---|---|
-| `iter/Iter/` | the library: `Basic` (iterators and their proofs), `Group` (`groupFold`), `Cost` (cost model) |
+| `iter/Iter/` | the library: `Basic` (iterators and their proofs), `Group` (`groupFold`), `Cost` (cost model), `Rewrite` (proved loop rewrites) |
 | `iter/` | the `tasks` CLI, its generated-input checker, the axiom audit, `check_c.py`, and the Lean and C++ benchmarks (`Bench.lean`, `bench.cpp`) |
 | `tasks/` | CLI fixtures, expected outputs and `replay.sh` |
 | `docs/DETAILS.md` | theorem list, cost model, CLI formats and exit codes, limits |

@@ -109,10 +109,25 @@ Worked example (`ex_fold`, `ex_find`): on `[1..6]`, `filter even → map (·*10)
 give the same answers and are rejected by cost: materialising every stage (`mut_staged`, 9 cells), testing each
 filter twice (`mut_dup`, 15 calls), and a find that keeps reading (`mut_noexit`, 6 reads).
 
+**Rewrites (`iter/Iter/Rewrite.lean`).** Proved for any `+` that is associative and commutative with
+identity `0` (`AddLaws`), instantiated for `UInt64` (`u64Laws`, wrapping like C++ `uint64_t`) and `Nat`:
+
+| theorem | statement |
+|---|---|
+| `sum_select` | sum of `f` over the kept items = sum of `p x ? f x : 0` over all items |
+| `select_mask` | on `UInt64`, `v &&& (0 - (b ? 1 : 0)) = b ? v : 0` |
+| `sum_lanes` | for any `k`, sending item `j` to accumulator `j % k` and adding the lanes gives the sum |
+| `chain_lanes` | the `Iter` chain `filter → map → foldl (+)` equals the select + lanes loop |
+| `summary_split` | folding (count, total, first, last) = (length, sum, first row, last row) |
+| `head_filter`, `getLast_filter` | the first / last kept row is a forward / backward `find?` |
+
+`bench.cpp`'s `provedU` and `provedA` are hand transcriptions of these loops; they are compared with the hand
+loops on several inputs (`results_equal`), not proved.
+
 **CLI (`iter/TaskCore.lean`).** `logPipe_spec`, `salesPipe_spec`, `salesPipe_keys` and `manifestPipe_spec`
 are one-line compositions of the lemmas above. `entryBad_trace`: tracing doesn't change the answer.
 
-`iter/TaskAudit.lean` lists every theorem in `Iter` and `TaskCore` (117, auto-generated equation lemmas
+`iter/TaskAudit.lean` lists every theorem in `Iter` and `TaskCore` (140, auto-generated equation lemmas
 excluded) and fails if any uses an axiom beyond `propext`, `Classical.choice` and `Quot.sound`. No `sorry`.
 
 ## What is checked, not proved
