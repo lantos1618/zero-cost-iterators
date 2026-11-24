@@ -139,7 +139,7 @@ block counts kept-run starts over its first 32 rows; a branchy block counts them
 row whose predecessor was not kept). The next block is masked iff more than 1 row in 16 starts a run. The
 choices depend on the data, but for each input they form some `mode`, so the theorem covers them: the policy
 can be changed for speed without touching the proof. The fuzz checks this directly: with the switch condition
-inverted, all 21,600 results still match.
+inverted, all 43,200 results still match.
 
 **The word sum** (`opt_correct`) uses the mask plus two more facts: `sum_lanes` (with associative,
 commutative `+`, item `j` can go to accumulator `j % k`; proved for `UInt64` via `BitVec`, and impossible
@@ -195,7 +195,7 @@ Lean reads it. The filter is printed with `&`, never `&&` (measured below: `&&` 
 printed as sum, count, `min?` and `max?`, and
 300 random record pipelines, each record one printed twice (masked-only, and switching with block 0–9,
 window 0–9, threshold 0–24, so both bodies run on the 29 test rows), including division and modulo by zero and missing
-fields/parameters, each on inputs of length 0, 1, 5 and all. That is 21,600 results; the C++ is built with
+fields/parameters, each on inputs of length 0, 1, 5 and all. That is 43,200 results; the C++ is built with
 UBSan and its output must equal Lean's `Pipe.run` / `SPipe.run`. Planted bugs in the last-row select, in
 the branchy body's count and in the `min` mask must make the comparison fail; an inverted switch condition must not. By hand, disabling the `/` and `%` zero guards was caught by UBSan. The fuzz
 checks the printer, not GCC on the benchmark binary; that binary is checked by `results_equal`.

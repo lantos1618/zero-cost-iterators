@@ -289,4 +289,19 @@ theorem printed_summary : q.cRun ps rows = q.run ps rows :=
   (cRunS_eq q ps rows).trans (fast2_correct q ps rows)
 end
 
+/-- `Loop.toCppRange`: one accumulator over a range-for, either step form -/
+def Loop.cRunR (L : Loop) (k : UInt64) (xs : Array UInt64) : UInt64 :=
+  xs.toList.foldl (fun a x => a + sel (L.keep.eval k x) (L.body.eval k x)) 0 * L.scale.eval k 0
+
+theorem cRunR_eq (L : Loop) (k : UInt64) (xs : Array UInt64) : L.cRunR k xs = L.run k xs := by
+  rw [Loop.cRunR, Loop.run, sum_lanes u64Laws, sumL, List.foldl_map]
+
+theorem printed_range (lanes : Nat) (q : Pipe) (k : UInt64) (xs : Array UInt64) :
+    (opt lanes q).cRunR k xs = q.run k xs :=
+  (cRunR_eq _ k xs).trans (opt_correct lanes q k xs)
+
+theorem printed_range_count (lanes : Nat) (q : Pipe) (k : UInt64) (xs : Array UInt64) :
+    (opt lanes q.countPipe).cRunR k xs = (q.count k xs).toUInt64 :=
+  (cRunR_eq _ k xs).trans ((cRun_eq _ k xs).symm.trans (printed_count lanes q k xs))
+
 end Iter.Gen

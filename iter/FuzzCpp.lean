@@ -82,9 +82,9 @@ def gen (n : Nat) : Case := (go.run 7).1 where
 def lens (n : Nat) : List Nat := [0, 1, 5, n]
 
 def expect (c : Case) : List String :=
-  (c.words.enum.flatMap fun (i, (_, q)) => (lens c.xs.size).flatMap fun n => c.ks.map fun k =>
+  ((c.words ++ c.words ++ c.words ++ c.words).enum.flatMap fun (i, (_, q)) => (lens c.xs.size).flatMap fun n => c.ks.map fun k =>
     s!"W {i} {n} {k} {q.run k (c.xs.extract 0 n)}") ++
-  (c.words.enum.flatMap fun (i, (_, q)) => (lens c.xs.size).flatMap fun n => c.ks.map fun k =>
+  ((c.words ++ c.words ++ c.words ++ c.words).enum.flatMap fun (i, (_, q)) => (lens c.xs.size).flatMap fun n => c.ks.map fun k =>
     s!"C {i} {n} {k} {q.count k (c.xs.extract 0 n)}") ++
   ([("N", Red.min), ("X", Red.max)].flatMap fun (t, r) => c.words.enum.flatMap fun (i, (_, q)) =>
     (lens c.xs.size).flatMap fun n => c.ks.map fun k =>
@@ -96,8 +96,12 @@ def expect (c : Case) : List String :=
 def cpp (c : Case) : String :=
   let u := fun (l : List UInt64) => ", ".intercalate (l.map (s!"{·}ULL"))
   let rows := ", ".intercalate (c.rows.toList.map fun r => s!"\{\"{r.label}\", {u r.f}}")
-  let words := c.words.enum.flatMap fun (i, (l, q)) => [(opt l q).toCpp s!"w{i}",
-    (opt l q.countPipe).toCpp s!"c{i}", q.toCppRed .min l s!"n{i}", q.toCppRed .max l s!"x{i}"]
+  let each := fun (f : Nat → Nat × Pipe → List String) => c.words.enum.flatMap fun (i, lq) => f i lq
+  let words := each (fun i (l, q) => [(opt l q).toCpp s!"w{i}", (opt l q.countPipe).toCpp s!"c{i}",
+      q.toCppRed .min l s!"n{i}", q.toCppRed .max l s!"x{i}"]) ++
+    each (fun i (l, q) => [(opt l q).toCpp s!"wb{i}" true, (opt l q.countPipe).toCpp s!"cb{i}" true]) ++
+    each (fun i (l, q) => [(opt l q).toCppRange s!"wr{i}", (opt l q.countPipe).toCppRange s!"cr{i}",
+      (opt l q).toCppRange s!"wq{i}" false, (opt l q.countPipe).toCppRange s!"cq{i}" false])
   let fs := ["e.f0", "e.f1", "e.f2"]
   let recs := (c.recs.enum.map fun (i, (q, _)) => q.toCpp 2 s!"r{i}" "Row" fs) ++
     c.recs.enum.map fun (i, (q, b, w, d)) => q.toCppAdapt 2 s!"a{i}" "Row" fs b w d
@@ -108,8 +112,8 @@ def cpp (c : Case) : String :=
     "#include <vector>",
     "struct Row { std::string_view name; std::uint64_t f0, f1, f2; };",
     "struct Summ { std::uint64_t count = 0, total = 0; std::string_view first, last; };"] ++ words ++ recs ++ [
-    s!"static std::uint64_t (*const W[])(const std::vector<std::uint64_t>&, std::uint64_t) = \{{calls "w"}};",
-    s!"static std::uint64_t (*const C[])(const std::vector<std::uint64_t>&, std::uint64_t) = \{{calls "c"}};",
+    s!"static std::uint64_t (*const W[])(const std::vector<std::uint64_t>&, std::uint64_t) = \{{calls "w"}, {calls "wb"}, {calls "wr"}, {calls "wq"}};",
+    s!"static std::uint64_t (*const C[])(const std::vector<std::uint64_t>&, std::uint64_t) = \{{calls "c"}, {calls "cb"}, {calls "cr"}, {calls "cq"}};",
     s!"static std::optional<std::uint64_t> (*const N[])(const std::vector<std::uint64_t>&, std::uint64_t) = \{{calls "n"}};",
     s!"static std::optional<std::uint64_t> (*const X[])(const std::vector<std::uint64_t>&, std::uint64_t) = \{{calls "x"}};",
     s!"static Summ (*const R[])(const std::vector<Row>&, std::uint64_t, std::uint64_t) = \{{", ".intercalate rcalls}};",

@@ -148,7 +148,7 @@ C++, which agree for any array that fits in memory.
 **Printer fuzzing (`iter/FuzzCpp.lean`).** 300 random word pipelines (0–9 lanes; each as sum, count, `min?`
 and `max?`) and 300 random record
 pipelines, with `%` and `/` by zero and missing fields and parameters, each run on inputs of length 0, 1, 5
-and all; each record pipeline is printed masked-only and switching (random block, window and threshold): 21,600
+and all; each record pipeline is printed masked-only and switching (random block, window and threshold): 43,200
 results. The C++ is built with `-fsanitize=undefined` and its output must equal Lean's `Pipe.run` /
 `SPipe.run` byte for byte (`fuzz_cpp`). `fuzz_mutant` (last row taken on every row) and `fuzz_mutant2`
 (branchy body drops the count) and `fuzz_mutant3` (`min` mask inverted) plant printer bugs and require the comparison to fail; `fuzz_policy` inverts

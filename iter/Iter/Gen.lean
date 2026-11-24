@@ -144,16 +144,25 @@ def header (ret name : String) : String :=
   s!"__attribute__((noinline)) static {ret} {name}(const std::vector<std::uint64_t>& xs, std::uint64_t k) \{"
 
 /-- one C++ function `name(xs, k)`; its loops are modelled line for line by `Loop.cRun` in `Iter/CLoop.lean`
-(`cRun_eq`). 0 lanes is printed as 1 (same sum, and no zero-length array or
+(`cRun_eq`). With `br` the step is printed as `if (keep) acc[l] += body`, the same `acc[l] += sel keep body`
+written as a branch (GCC may or may not if-convert it; speed only). 0 lanes is printed as 1 (same sum, and no zero-length array or
 zero-step loop) -/
-def Loop.toCpp (L : Loop) (name : String) : String :=
+def Loop.toCpp (L : Loop) (name : String) (br : Bool := false) : String :=
   let n := max L.lanes 1
   String.intercalate "\n" ([header "std::uint64_t" name, "  (void)k;", s!"  std::uint64_t acc[{n}] = \{};"] ++
-    laneLoop n (fun lane => s!"acc[{lane}] += {L.body.toCpp} & (0 - (std::uint64_t){L.keep.toCpp});") ++ [
+    laneLoop n (fun lane => if br then s!"if ({L.keep.toCpp}) acc[{lane}] += {L.body.toCpp};"
+      else s!"acc[{lane}] += {L.body.toCpp} & (0 - (std::uint64_t){L.keep.toCpp});") ++ [
     "  std::uint64_t total = 0;",
     "  for (std::uint64_t a : acc) total += a;",
     s!"  return total * {L.scale.toCpp};",
     "}"])
+
+/-- one accumulator over a range-for; modelled by `Loop.cRunR` (`cRunR_eq`). `br` as in `Loop.toCpp` -/
+def Loop.toCppRange (L : Loop) (name : String) (br : Bool := true) : String :=
+  String.intercalate "\n" [header "std::uint64_t" name, "  (void)k;", "  std::uint64_t acc = 0;",
+    if br then s!"  for (std::uint64_t x : xs) if ({L.keep.toCpp}) acc += {L.body.toCpp};"
+    else s!"  for (std::uint64_t x : xs) acc += {L.body.toCpp} & (0 - (std::uint64_t){L.keep.toCpp});",
+    s!"  return acc * {L.scale.toCpp};", "}"]
 
 /-! ## The benchmark's word pipeline -/
 

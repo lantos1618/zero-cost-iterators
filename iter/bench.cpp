@@ -114,7 +114,7 @@ NOINLINE Hit eagerF(const std::vector<u64>& xs, u64 t) {
 // from Iter.Rewrite.chain_find_blocks and checked only by the results_equal test.
 #include "gen/proved_gen.hpp"
 
-NOINLINE Hit provedF(const std::vector<u64>& xs, u64 t) {
+NOINLINE Hit findBlocks(const std::vector<u64>& xs, u64 t) {
   // blocks of 32 (find_blocks): a branch-free "any match?" per block, then a search inside the one block that has it
   constexpr std::size_t B = 32;
   std::size_t n = xs.size(), i = 0;
@@ -126,6 +126,18 @@ NOINLINE Hit provedF(const std::vector<u64>& xs, u64 t) {
   for (; i < n; ++i) if (xs[i] > t) return std::pair{i, xs[i]};
   return std::nullopt;
 }
+
+NOINLINE Hit findPlain(const std::vector<u64>& xs, u64 t) {
+  for (std::size_t i = 0; i < xs.size(); ++i) if (xs[i] > t) return std::pair{i, xs[i]};
+  return std::nullopt;
+}
+struct FindCand { const char* tag; Hit (*f)(const std::vector<u64>&, u64); };
+static const FindCand provedF_cands[] = {{"plain", &findPlain}, {"blocks", &findBlocks}};
+
+// the loops "ours" runs: picked by tune() below from candidates that all compute the same result
+static u64 (*provedU)(const std::vector<u64>&, u64);
+static u64 (*provedC)(const std::vector<u64>&, u64);
+static Hit (*provedF)(const std::vector<u64>&, u64);
 
 // same rows, inactive first, then by salary: the hand loop's branch becomes predictable
 static std::vector<Emp> sortedRows(std::vector<Emp> es) {
@@ -170,6 +182,27 @@ static void bench(const char* label, std::size_t n, int reps, F f) {
               per(ts.front()), per(ts.back()), (unsigned long long)chk);
 }
 
+// times every candidate on a separate sample (median of 9) and returns the fastest; this changes speed only,
+// because every candidate is proved (or, for provedF, checked below) to give the same result
+template <class C, std::size_t N, class R>
+static decltype(C::f) tune(const char* what, const C (&cs)[N], R run) {
+  std::size_t best = 0;
+  long long bt = -1;
+  volatile u64 sink = 0;
+  for (std::size_t c = 0; c < N; ++c) {
+    std::vector<long long> ts;
+    for (int b = 0; b < 9; ++b) {
+      auto t0 = std::chrono::steady_clock::now();
+      sink = sink + run(cs[c].f);
+      ts.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count());
+    }
+    std::sort(ts.begin(), ts.end());
+    if (bt < 0 || ts[4] < bt) { bt = ts[4]; best = c; }
+  }
+  std::printf("TUNE %s=%s\n", what, cs[best].tag);
+  return cs[best].f;
+}
+
 int main(int argc, char** argv) {
   std::size_t n = argc > 1 ? std::strtoull(argv[1], nullptr, 10) : 1000000;
   std::vector<u64> xs;
@@ -183,6 +216,13 @@ int main(int argc, char** argv) {
   std::vector<Emp> runs = runRows(es, xs);
   std::vector<Emp> mixed = mixedRows(es, runs);
   u64 big = *std::max_element(xs.begin(), xs.end());
+  std::vector<u64> tx(n);  // tuning sample: same size and generator, different seed, not the timed data
+  for (u64 t = 7; u64& x : tx) { t = t * 6364136223846793005ULL + 1442695040888963407ULL; x = t >> 40; }
+  u64 tbig = *std::max_element(tx.begin(), tx.end());
+  auto words = [&](auto f) { u64 a = 0; for (u64 r = 0; r < 4; ++r) a += f(tx, r); return a; };
+  provedU = tune("provedU", provedU_cands, words);
+  provedC = tune("provedC", provedC_cands, words);
+  provedF = tune("provedF", provedF_cands, [&](auto f) { u64 a = 0; for (u64 r = 0; r < 4; ++r) a += f(tx, tbig + 1 + r) ? 1 : 0; return a; });
 
   auto same = [](Summ a, Summ b) { return a.count == b.count && a.total == b.total && a.first == b.first && a.last == b.last; };
   bool ok = handU(xs, 1) == viewsU(xs, 1) && handU(xs, 1) == eagerU(xs, 1) &&
@@ -197,6 +237,11 @@ int main(int argc, char** argv) {
   for (u64 k : {1ull, 2ull, 7ull})
     ok = ok && handC(xs, k) == viewsC(xs, k) && handC(xs, k) == provedC(xs, k) &&
          handMax(xs, k) == viewsMax(xs, k) && handMax(xs, k) == provedMax(xs, k);
+  for (u64 k : {1ull, 2ull, 7ull}) {
+    for (auto& c : provedU_cands) ok = ok && c.f(xs, k) == handU(xs, k);
+    for (auto& c : provedC_cands) ok = ok && c.f(xs, k) == handC(xs, k);
+  }
+  for (auto& c : provedF_cands) ok = ok && c.f(xs, big) == handF(xs, big) && c.f(xs, xs[999]) == handF(xs, xs[999]) && !c.f(xs, big + 1);
   ok = ok && !provedMax(std::vector<u64>{1, 4}, 0) && provedC(std::vector<u64>{}, 0) == 0;
   for (auto* d : {&es, &sorted, &runs, &mixed}) for (u64 m : {0ull, 50000ull, 250000ull}) ok = ok && same(handA(*d, m, 90), adaptA(*d, m, 90));
   std::printf("BENCH cpp items=%zu results_equal=%s\n", n, ok ? "true" : "false");
