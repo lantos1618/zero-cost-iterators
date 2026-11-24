@@ -139,14 +139,19 @@ pointers with selects; `step1_filter` shows each step skips dropped rows and is 
 and `fast1_correct` proves `fast1 = run`, the `Iter` chain. `SPipe.fast2` is what the printed loop computes:
 search for the first kept row, then the same pass without tracking `first` (`step2`). `step1_dropWhile` (the
 dropped prefix changes nothing) and `step1_step2` (once `first` is set the two steps agree) give
-`fast2_correct : fast2 = run`; `recPipe_gen` instantiates it for the benchmark. `SPipe.toCpp` prints it. The count is a `Nat` in Lean and a `uint64_t` in
+`fast2_correct : fast2 = run`; `recPipe_gen` instantiates it for the benchmark. `SPipe.toCpp` prints it.
+`SPipe.fast3 mode` handles each later row with the masked step or a branchy one (`stepB`, equal by
+`stepB_step2`) as `mode` says; `fast3_correct` holds for every `mode`, and `SPipe.toCppAdapt` prints a loop
+that picks per block from the data (`adaptA`, `recPipe_adapt`). The count is a `Nat` in Lean and a `uint64_t` in
 C++, which agree for any array that fits in memory.
 
 **Printer fuzzing (`iter/FuzzCpp.lean`).** 300 random word pipelines (0–9 lanes) and 300 random record
 pipelines, with `%` and `/` by zero and missing fields and parameters, each run on inputs of length 0, 1, 5
-and all: 7,200 results. The C++ is built with `-fsanitize=undefined` and its output must equal Lean's
-`Pipe.run` / `SPipe.run` byte for byte (`fuzz_cpp`). `fuzz_mutant` plants one printer bug (first row taken on
-every kept row) and requires the comparison to fail.
+and all; each record pipeline is printed masked-only and switching (random block, window and threshold): 10,800
+results. The C++ is built with `-fsanitize=undefined` and its output must equal Lean's `Pipe.run` /
+`SPipe.run` byte for byte (`fuzz_cpp`). `fuzz_mutant` (last row taken on every row) and `fuzz_mutant2`
+(branchy body drops the count) plant printer bugs and require the comparison to fail; `fuzz_policy` inverts
+the switch condition and requires it to pass.
 
 `bench.cpp`'s `provedU` and `provedA` come from that header; `provedF` is a hand transcription of the block
 search, compared with the hand loop on several inputs (`results_equal`), not proved.

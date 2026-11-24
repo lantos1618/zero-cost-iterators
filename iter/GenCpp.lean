@@ -1,6 +1,6 @@
 import Iter
 /-! Prints `gen/proved_gen.hpp`: the C++ for `Iter.Gen.opt 8 wordPipe` and `Iter.Gen.recPipe`, proved
-equal to their chains by `Iter.Gen.wordPipe_gen` and `Iter.Gen.recPipe_gen`. `replay.sh` checks the committed header is what this prints. -/
+equal to their chains by `Iter.Gen.wordPipe_gen`, `Iter.Gen.recPipe_gen` and `Iter.Gen.recPipe_adapt`. `replay.sh` checks the committed header is what this prints. -/
 open Iter.Gen
 
 def main : IO Unit := do
@@ -9,4 +9,7 @@ def main : IO Unit := do
     "#pragma once\n#include <cstddef>\n#include <cstdint>\n#include <vector>\n\n" ++
     (opt 8 wordPipe).toCpp "provedU" ++ "\n\n" ++
     "// Iter.Gen.recPipe_gen proves this loop equal to the running summary; needs Emp and Summ from the includer.\n" ++
-    recPipe.toCpp 2 "provedA" "Emp" ["e.salary", "(std::uint64_t)e.active"] ++ "\n")
+    recPipe.toCpp 2 "provedA" "Emp" fs ++ "\n\n" ++
+    "// Iter.Gen.recPipe_adapt proves this loop equal to the running summary for every masked/branchy choice.\n" ++
+    recPipe.toCppAdapt 2 "adaptA" "Emp" fs 256 32 16 ++ "\n")
+where fs := ["e.salary", "(std::uint64_t)e.active"]

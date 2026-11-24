@@ -124,6 +124,13 @@ static std::vector<Emp> runRows(std::vector<Emp> es, const std::vector<u64>& xs)
   return es;
 }
 
+// alternating 65,536-row stretches of random rows and of runs: the best loop changes inside one input
+static std::vector<Emp> mixedRows(const std::vector<Emp>& rnd, const std::vector<Emp>& runs) {
+  std::vector<Emp> es = rnd;
+  for (std::size_t i = 0; i < es.size(); ++i) if ((i >> 16) & 1) es[i] = runs[i];
+  return es;
+}
+
 template <class F>
 static void bench(const char* label, std::size_t n, int reps, F f) {
   volatile u64 warm = f(0); (void)warm;
@@ -154,6 +161,7 @@ int main(int argc, char** argv) {
   for (std::size_t i = 0; i < n; ++i) es[i] = {names[i % 8], xs[i] % 200000, xs[i] % 5 != 0};
   std::vector<Emp> sorted = sortedRows(es);
   std::vector<Emp> runs = runRows(es, xs);
+  std::vector<Emp> mixed = mixedRows(es, runs);
   u64 big = *std::max_element(xs.begin(), xs.end());
 
   auto same = [](Summ a, Summ b) { return a.count == b.count && a.total == b.total && a.first == b.first && a.last == b.last; };
@@ -164,7 +172,9 @@ int main(int argc, char** argv) {
             handF(xs, big) == provedF(xs, big) && handF(xs, xs[999]) == provedF(xs, xs[999]) && !provedF(xs, big + 1) &&
             same(handA(es, 50000, 90), provedA(es, 50000, 90)) && same(handA(es, 250000, 90), provedA(es, 250000, 90)) &&
             same(handA(sorted, 50000, 90), viewsA(sorted, 50000, 90)) && same(handA(sorted, 50000, 90), provedA(sorted, 50000, 90)) &&
-            same(handA(runs, 50000, 90), viewsA(runs, 50000, 90)) && same(handA(runs, 50000, 90), provedA(runs, 50000, 90));
+            same(handA(runs, 50000, 90), viewsA(runs, 50000, 90)) && same(handA(runs, 50000, 90), provedA(runs, 50000, 90)) &&
+            same(handA(mixed, 50000, 90), viewsA(mixed, 50000, 90)) && same(handA(mixed, 50000, 90), provedA(mixed, 50000, 90));
+  for (auto* d : {&es, &sorted, &runs, &mixed}) for (u64 m : {0ull, 50000ull, 250000ull}) ok = ok && same(handA(*d, m, 90), adaptA(*d, m, 90));
   std::printf("BENCH cpp items=%zu results_equal=%s\n", n, ok ? "true" : "false");
 
   const int reps = 20;
@@ -179,12 +189,19 @@ int main(int argc, char** argv) {
     bench("cpp_viewsA", n, reps, [&](int r) { return viewsA(es, 50000 + r % 2, 90).total; });
     bench("cpp_eagerA", n, reps, [&](int r) { return eagerA(es, 50000 + r % 2, 90).total; });
     bench("cpp_provedA", n, reps, [&](int r) { return provedA(es, 50000 + r % 2, 90).total; });
+    bench("cpp_adaptA", n, reps, [&](int r) { return adaptA(es, 50000 + r % 2, 90).total; });
     bench("cpp_handA_sorted", n, reps, [&](int r) { return handA(sorted, 50000 + r % 2, 90).total; });
     bench("cpp_viewsA_sorted", n, reps, [&](int r) { return viewsA(sorted, 50000 + r % 2, 90).total; });
     bench("cpp_provedA_sorted", n, reps, [&](int r) { return provedA(sorted, 50000 + r % 2, 90).total; });
+    bench("cpp_adaptA_sorted", n, reps, [&](int r) { return adaptA(sorted, 50000 + r % 2, 90).total; });
     bench("cpp_handA_runs", n, reps, [&](int r) { return handA(runs, 50000 + r % 2, 90).total; });
     bench("cpp_viewsA_runs", n, reps, [&](int r) { return viewsA(runs, 50000 + r % 2, 90).total; });
     bench("cpp_provedA_runs", n, reps, [&](int r) { return provedA(runs, 50000 + r % 2, 90).total; });
+    bench("cpp_adaptA_runs", n, reps, [&](int r) { return adaptA(runs, 50000 + r % 2, 90).total; });
+    bench("cpp_handA_mixed", n, reps, [&](int r) { return handA(mixed, 50000 + r % 2, 90).total; });
+    bench("cpp_viewsA_mixed", n, reps, [&](int r) { return viewsA(mixed, 50000 + r % 2, 90).total; });
+    bench("cpp_provedA_mixed", n, reps, [&](int r) { return provedA(mixed, 50000 + r % 2, 90).total; });
+    bench("cpp_adaptA_mixed", n, reps, [&](int r) { return adaptA(mixed, 50000 + r % 2, 90).total; });
     bench("cpp_handF_miss", n, reps, [&](int r) { return hitVal(handF(xs, big + 1 + r)); });
     bench("cpp_viewsF_miss", n, reps, [&](int r) { return hitVal(viewsF(xs, big + 1 + r)); });
     bench("cpp_eagerF_miss", n, reps, [&](int r) { return hitVal(eagerF(xs, big + 1 + r)); });

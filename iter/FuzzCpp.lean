@@ -1,7 +1,8 @@
 import Iter
 /-! Differential test of the trusted C++ printers. `fuzzcpp cpp N` prints a C++ program with `N` random
 word pipelines (random lane counts, including 0) and `N` random record pipelines (including `/` and `%` by
-zero, missing fields and parameters); `fuzzcpp expect N` prints what Lean's `Pipe.run` / `SPipe.run`, the
+zero, missing fields and parameters), each printed twice: as `SPipe.toCpp` and as `SPipe.toCppAdapt` with
+random block, window and threshold, so both bodies and the switch between them run; `fuzzcpp expect N` prints what Lean's `Pipe.run` / `SPipe.run`, the
 `Iter` chains, give on the same inputs. `replay.sh` builds the C++ with UBSan and diffs the two. -/
 open Iter.Gen
 
@@ -63,7 +64,7 @@ def genList (n : Nat) (g : G α) : G (List α) := (List.range n).mapM fun _ => g
 
 structure Case where
   words : List (Nat × Pipe)
-  recs : List SPipe
+  recs : List (SPipe × Nat × Nat × Nat)
   xs : Array UInt64
   rows : Array (Row String)
   ks : List UInt64
@@ -72,7 +73,7 @@ structure Case where
 def gen (n : Nat) : Case := (go.run 7).1 where
   go : G Case := do
     let words ← genList n do pure (← rnd 10, ⟨← genP 2, ← genE 3⟩)
-    let recs ← genList n do pure ⟨← genQ 2, ← genX 3⟩
+    let recs ← genList n do pure (⟨← genQ 2, ← genX 3⟩, ← rnd 10, ← rnd 10, ← rnd 25)
     let xs ← genList 37 word
     let rows ← (List.range 29).mapM fun i => do pure (⟨s!"r{i}", ← genList 3 word⟩ : Row String)
     pure ⟨words, recs, xs.toArray, rows.toArray, ← genList 3 word, ← genList 3 (genList 2 word)⟩
@@ -83,7 +84,7 @@ def lens (n : Nat) : List Nat := [0, 1, 5, n]
 def expect (c : Case) : List String :=
   (c.words.enum.flatMap fun (i, (_, q)) => (lens c.xs.size).flatMap fun n => c.ks.map fun k =>
     s!"W {i} {n} {k} {q.run k (c.xs.extract 0 n)}") ++
-  (c.recs.enum.flatMap fun (i, q) => (lens c.rows.size).flatMap fun n => c.pss.map fun ps =>
+  ((c.recs ++ c.recs).enum.flatMap fun (i, (q, _)) => (lens c.rows.size).flatMap fun n => c.pss.map fun ps =>
     let s := q.run ps (c.rows.extract 0 n)
     s!"R {i} {n} {ps.getD 0 0} {ps.getD 1 0} {s.count} {s.total} {s.first.getD "-"} {s.last.getD "-"}")
 
@@ -91,9 +92,11 @@ def cpp (c : Case) : String :=
   let u := fun (l : List UInt64) => ", ".intercalate (l.map (s!"{·}ULL"))
   let rows := ", ".intercalate (c.rows.toList.map fun r => s!"\{\"{r.label}\", {u r.f}}")
   let words := c.words.enum.map fun (i, (l, q)) => (opt l q).toCpp s!"w{i}"
-  let recs := c.recs.enum.map fun (i, q) => q.toCpp 2 s!"r{i}" "Row" ["e.f0", "e.f1", "e.f2"]
+  let fs := ["e.f0", "e.f1", "e.f2"]
+  let recs := (c.recs.enum.map fun (i, (q, _)) => q.toCpp 2 s!"r{i}" "Row" fs) ++
+    c.recs.enum.map fun (i, (q, b, w, d)) => q.toCppAdapt 2 s!"a{i}" "Row" fs b w d
   let wcalls := (List.range c.words.length).map fun i => s!"&w{i}"
-  let rcalls := (List.range c.recs.length).map fun i => s!"&r{i}"
+  let rcalls := ((List.range c.recs.length).map fun i => s!"&r{i}") ++ (List.range c.recs.length).map fun i => s!"&a{i}"
   "\n".intercalate ([
     "#include <cstdint>", "#include <cstdio>", "#include <string_view>", "#include <vector>",
     "struct Row { std::string_view name; std::uint64_t f0, f1, f2; };",

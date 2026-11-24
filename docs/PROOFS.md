@@ -122,6 +122,25 @@ benchmark's pipeline: keep `active != 0 & salary >= p0`, pay `salary * p1 / 100`
 come in a run. On the sorted rows the first 40% are dropped, and the ablation's one-pass loop went from
 1.41–1.58 to 1.18–1.23 ns per row. On random rows the first row is usually kept, and nothing changes.
 
+## Step 5: switch between masked and branchy blocks (`stepB_step2`, `foldl_mix`, `fast3_correct`)
+
+The masked body wins when the keep test is unpredictable; the branchy body (`if keep { count, total, last }`)
+wins when it is predictable, because it skips the pay arithmetic on dropped rows. Which one is right can change
+inside one input. `fast3 mode` runs `fast2` but handles row `i` after the first kept row with `step2` when
+`mode i` and with `stepB` otherwise.
+
+- `stepB_step2 : stepB = step2`: case on the keep test; `sel false v = 0`, `sel true v = v`.
+- `foldl_mix`: a fold that picks its step per position from any `mode : Nat → Bool` equals the plain fold when
+  every choice is the same function. Induction.
+- `fast3_correct : ∀ mode, q.fast3 mode ps rows = q.run ps rows`: unfold to `fast2`, then `foldl_mix`.
+
+The printed loop (`SPipe.toCppAdapt`) splits the rows after the first kept one into blocks of 256. A masked
+block counts kept-run starts over its first 32 rows; a branchy block counts them on its kept rows only (a kept
+row whose predecessor was not kept). The next block is masked iff more than 1 row in 16 starts a run. The
+choices depend on the data, but for each input they form some `mode`, so the theorem covers them: the policy
+can be changed for speed without touching the proof. The fuzz checks this directly: with the switch condition
+inverted, all 10,800 results still match.
+
 **The word sum** (`opt_correct`) uses the mask plus two more facts: `sum_lanes` (with associative,
 commutative `+`, item `j` can go to accumulator `j % k`; proved for `UInt64` via `BitVec`, and impossible
 for `Float`, which has no `AddLaws`) and `sum_mul` (`Σ x·c = (Σ x)·c`). It prints 8 lanes, chosen from an
@@ -142,7 +161,9 @@ Nothing else: no `take`, `enumerate` or user functions, no strings in expression
 |---|---|
 | `Iter` chain = list program | proved (`Denotes`) |
 | list program = search + masked loop (records), masked multi-lane loop (words) | proved (`fast2_correct`, `opt_correct`) |
-| that loop printed as C++ text | **trusted** (`SPipe.toCpp`, `Loop.toCpp`, about 60 lines), **fuzzed** |
+| list program = search + any mix of masked and branchy rows (records) | proved (`fast3_correct`) |
+| that loop printed as C++ text | **trusted** (`SPipe.toCpp`, `SPipe.toCppAdapt`, `Loop.toCpp`, about 100 lines), **fuzzed** |
+| the switch policy picks fast blocks | measured only; it cannot change results |
 | C++ text → machine code | **trusted**: GCC |
 | count as `Nat` (Lean) vs `uint64_t` (C++) | agree below 2^64 rows |
 | 0 lanes | Lean allows it; the printer emits 1 lane, same sum; covered by the fuzz |
@@ -152,11 +173,12 @@ Printer details that matter: Lean defines `x / 0 = 0` and `x % 0 = x`, C++ leave
 `%` are guarded unless the divisor is a nonzero literal. A missing field or parameter prints as `0ULL`, as
 Lean reads it. The filter is printed with `&`, never `&&` (measured below: `&&` costs 2×).
 
-**Fuzz** (`iter/FuzzCpp.lean`, rows `fuzz_cpp` and `fuzz_mutant` in `replay.sh`): 300 random word pipelines
-with 0–9 lanes and 300 random record pipelines, including division and modulo by zero and missing
-fields/parameters, each on inputs of length 0, 1, 5 and all. That is 7,200 results; the C++ is built with
-UBSan and its output must equal Lean's `Pipe.run` / `SPipe.run`. A planted bug in the last-row select must
-make the comparison fail. By hand, disabling the `/` and `%` zero guards was caught by UBSan. The fuzz
+**Fuzz** (`iter/FuzzCpp.lean`, rows `fuzz_*` in `replay.sh`): 300 random word pipelines with 0–9 lanes and
+300 random record pipelines, each record one printed twice (masked-only, and switching with block 0–9,
+window 0–9, threshold 0–24, so both bodies run on the 29 test rows), including division and modulo by zero and missing
+fields/parameters, each on inputs of length 0, 1, 5 and all. That is 10,800 results; the C++ is built with
+UBSan and its output must equal Lean's `Pipe.run` / `SPipe.run`. Planted bugs in the last-row select and in
+the branchy body's count must make the comparison fail; an inverted switch condition must not. By hand, disabling the `/` and `%` zero guards was caught by UBSan. The fuzz
 checks the printer, not GCC on the benchmark binary; that binary is checked by `results_equal`.
 
 ## What makes it fast (ablation)
@@ -189,8 +211,8 @@ What the table supports:
   1.18–1.23 (search, then one pass), and is unchanged on random rows.
 
 Not explained, not investigated: why `&` makes the hand loop slower, and why at `-O3 -march=native` the hand
-loop takes the same time on sorted and random rows (2.86–2.98). Not measured: rows where the dropped ones sit in
-the middle, where `std::views` skips them and ours does not.
+loop takes the same time on sorted and random rows (2.86–2.98). Measured since: with dropped runs in the middle the
+masked-only loop loses to `std::views` (1.32 vs 1.13); Step 5's switching loop ties it (1.12).
 
 ## Earlier claims this replaced
 

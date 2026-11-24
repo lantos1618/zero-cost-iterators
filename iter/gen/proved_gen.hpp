@@ -37,3 +37,33 @@ __attribute__((noinline)) static Summ provedA(const std::vector<Emp>& es, std::u
   s.count = cnt; s.total = tot; s.first = fp->name; s.last = lp->name;
   return s;
 }
+
+// Iter.Gen.recPipe_adapt proves this loop equal to the running summary for every masked/branchy choice.
+__attribute__((noinline, optimize("no-tree-loop-if-convert"))) static Summ adaptA(const std::vector<Emp>& es, std::uint64_t p0, std::uint64_t p1) {
+  std::size_t i = 0, n = es.size();
+  for (; i < n; ++i) { const Emp& e = es[i]; if ((((std::uint64_t)e.active != 0) & (e.salary >= p0))) break; }
+  Summ s;
+  if (i == n) return s;
+  const Emp* fp = &es[i];
+  const Emp* lp = fp;
+  std::uint64_t cnt = 1, tot;
+  { const Emp& e = *fp; tot = ((e.salary * p1) / 100ULL); }
+  bool masked = true;
+  for (++i; i < n;) {
+    std::size_t end = n - i > 256 ? i + 256 : n;
+    std::uint64_t starts = 0, w;
+    if (masked) {
+      std::size_t pe = end - i > 32 ? i + 32 : end;
+      w = pe - i;
+      std::uint64_t prev = lp + 1 == &es[i];
+      for (; i < pe; ++i) { const Emp& e = es[i]; std::uint64_t k = (((std::uint64_t)e.active != 0) & (e.salary >= p0)); std::uint64_t m = 0 - k; starts += k & ~prev; prev = k; cnt += 1 & m; tot += ((e.salary * p1) / 100ULL) & m; lp = k ? &e : lp; }
+      for (; i < end; ++i) { const Emp& e = es[i]; std::uint64_t k = (((std::uint64_t)e.active != 0) & (e.salary >= p0)); std::uint64_t m = 0 - k; cnt += 1 & m; tot += ((e.salary * p1) / 100ULL) & m; lp = k ? &e : lp; }
+    } else {
+      w = end - i;
+      for (; i < end; ++i) { const Emp& e = es[i]; if ((((std::uint64_t)e.active != 0) & (e.salary >= p0))) { starts += lp + 1 != &e; cnt += 1; tot += ((e.salary * p1) / 100ULL); lp = &e; } }
+    }
+    masked = starts * 16 > w;
+  }
+  s.count = cnt; s.total = tot; s.first = fp->name; s.last = lp->name;
+  return s;
+}

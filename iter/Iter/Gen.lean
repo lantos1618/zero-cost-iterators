@@ -314,6 +314,49 @@ theorem fast2_correct (q : SPipe) (ps : List UInt64) (rows : Array (Row ν)) :
     rw [step1_step2 q ps r rest _ (by simp [SPipe.step1, hk])]
     simp [SPipe.step1, hk, h1, u64Laws.zero_add]
 
+/-! ### switching between masked and branchy blocks
+
+`fast3 mode` is `fast2` with each row after the first kept one handled by either the masked body
+(`step2`) or the branchy body (`stepB`): row `i` uses the masked one when `mode i`. The printed loop picks
+the body per block from the data; whatever it picks is some `mode`, so `fast3_correct` covers it. -/
+
+def SPipe.stepB (q : SPipe) (ps : List UInt64) (s : Summary (Row ν) UInt64) (r : Row ν) :
+    Summary (Row ν) UInt64 :=
+  if q.keep.eval ps r.f then ⟨s.count + 1, s.total + q.pay.eval ps r.f, s.first, some r⟩ else s
+
+theorem stepB_step2 (q : SPipe) (ps : List UInt64) : q.stepB ps = (q.step2 ps : Summary (Row ν) UInt64 → _) := by
+  have h0 : ∀ v, sel false v = 0 := fun v => by rw [sel, select_mask]; rfl
+  have h1 : ∀ v, sel true v = v := fun v => by rw [sel, select_mask]; rfl
+  funext s r
+  cases hk : q.keep.eval ps r.f <;> cases s <;> simp [SPipe.stepB, SPipe.step2, hk, h0, h1, add_zero u64Laws]
+
+/-- a fold that picks its step per position from `mode` equals the plain fold when every choice is `f` -/
+theorem foldl_mix {α β : Type} (f : β → α → β) (g : Bool → β → α → β) (hg : ∀ b, g b = f)
+    (mode : Nat → Bool) : ∀ (l : List α) (s : β) (i : Nat),
+    (l.foldl (fun (p : β × Nat) x => (g (mode p.2) p.1 x, p.2 + 1)) (s, i)).1 = l.foldl f s
+  | [], _, _ => rfl
+  | x :: xs, s, i => by rw [List.foldl_cons, List.foldl_cons, foldl_mix f g hg mode xs, hg]
+
+def SPipe.fast3 (mode : Nat → Bool) (q : SPipe) (ps : List UInt64) (rows : Array (Row ν)) : Summary ν UInt64 :=
+  match rows.toList.dropWhile (fun r => !q.keep.eval ps r.f) with
+  | [] => ⟨0, 0, none, none⟩
+  | r :: rest =>
+    let s := (rest.foldl (fun (p : Summary (Row ν) UInt64 × Nat) x =>
+      ((if mode p.2 then q.step2 ps else q.stepB ps) p.1 x, p.2 + 1)) (⟨1, q.pay.eval ps r.f, some r, some r⟩, 0)).1
+    ⟨s.count, s.total, s.first.map (·.label), s.last.map (·.label)⟩
+
+/-- every choice of masked or branchy body per row computes the running summary -/
+theorem fast3_correct (mode : Nat → Bool) (q : SPipe) (ps : List UInt64) (rows : Array (Row ν)) :
+    q.fast3 mode ps rows = q.run ps rows := by
+  rw [← fast2_correct, SPipe.fast3, SPipe.fast2]
+  generalize rows.toList.dropWhile (fun r => !q.keep.eval ps r.f) = d
+  cases d with
+  | nil => rfl
+  | cons r rest =>
+    simp only
+    rw [foldl_mix (q.step2 ps) (fun b => if b then q.step2 ps else q.stepB ps)
+      (fun b => by cases b <;> simp [stepB_step2]) mode rest]
+
 /-! ### printer (trusted) -/
 
 /-- `fields[i]` / `params[i]` are the C++ for field / parameter `i`; a missing one is `0`, as in `X.eval` -/
@@ -358,10 +401,56 @@ def SPipe.toCpp (q : SPipe) (nParams : Nat) (name rowType : String) (fields : Li
     "  return s;",
     "}"]
 
+/-- C++ `name(rows, p0, ...)` computing `SPipe.fast3`: after the first kept row, blocks of `blk` rows, each
+run masked or branchy. A masked block counts kept-run starts over its first `win` rows, a branchy block on its
+kept rows; the next block is masked iff `starts * den > rows measured`. The choice changes speed only
+(`fast3_correct` holds for every `mode`). `optimize("no-tree-loop-if-convert")` stops GCC -O3 turning the
+branchy block back into selects. -/
+def SPipe.toCppAdapt (q : SPipe) (nParams : Nat) (name rowType : String) (fields : List String)
+    (blk win den : Nat) : String :=
+  let ps := (List.range nParams).map (s!"p{·}")
+  let params := String.join (ps.map (s!", std::uint64_t {·}"))
+  let keep := q.keep.toCpp fields ps
+  let pay := q.pay.toCpp fields ps
+  let masked := s!"const {rowType}& e = es[i]; std::uint64_t k = {keep}; std::uint64_t m = 0 - k; "
+  String.intercalate "\n" [
+    s!"__attribute__((noinline, optimize(\"no-tree-loop-if-convert\"))) static Summ {name}(const std::vector<{rowType}>& es{params}) \{",
+    "  std::size_t i = 0, n = es.size();",
+    s!"  for (; i < n; ++i) \{ const {rowType}& e = es[i]; if ({keep}) break; }",
+    "  Summ s;",
+    "  if (i == n) return s;",
+    s!"  const {rowType}* fp = &es[i];",
+    s!"  const {rowType}* lp = fp;",
+    "  std::uint64_t cnt = 1, tot;",
+    s!"  \{ const {rowType}& e = *fp; tot = {pay}; }",
+    "  bool masked = true;",
+    "  for (++i; i < n;) {",
+    s!"    std::size_t end = n - i > {max blk 1} ? i + {max blk 1} : n;",
+    "    std::uint64_t starts = 0, w;",
+    "    if (masked) {",
+    s!"      std::size_t pe = end - i > {win} ? i + {win} : end;",
+    "      w = pe - i;",
+    "      std::uint64_t prev = lp + 1 == &es[i];",
+    s!"      for (; i < pe; ++i) \{ {masked}starts += k & ~prev; prev = k; cnt += 1 & m; tot += {pay} & m; lp = k ? &e : lp; }",
+    s!"      for (; i < end; ++i) \{ {masked}cnt += 1 & m; tot += {pay} & m; lp = k ? &e : lp; }",
+    "    } else {",
+    "      w = end - i;",
+    s!"      for (; i < end; ++i) \{ const {rowType}& e = es[i]; if ({keep}) \{ starts += lp + 1 != &e; cnt += 1; tot += {pay}; lp = &e; } }",
+    "    }",
+    s!"    masked = starts * {den} > w;",
+    "  }",
+    "  s.count = cnt; s.total = tot; s.first = fp->name; s.last = lp->name;",
+    "  return s;",
+    "}"]
+
 /-- the benchmark's record pipeline: keep `active != 0 & salary >= p0`, pay `salary * p1 / 100` -/
 def recPipe : SPipe := ⟨.and (.ne0 (.fld 1)) (.ge (.fld 0) (.prm 0)), .div (.mul (.fld 0) (.prm 1)) (.lit 100)⟩
 
 theorem recPipe_gen (ps : List UInt64) (rows : Array (Row ν)) : recPipe.fast2 ps rows = recPipe.run ps rows :=
   fast2_correct recPipe ps rows
+
+theorem recPipe_adapt (mode : Nat → Bool) (ps : List UInt64) (rows : Array (Row ν)) :
+    recPipe.fast3 mode ps rows = recPipe.run ps rows :=
+  fast3_correct mode recPipe ps rows
 
 end Iter.Gen
