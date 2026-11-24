@@ -132,9 +132,10 @@ def P.toCpp : P → String
   | .lt a b => s!"({a.toCpp} < {b.toCpp})"
   | .and p q => s!"({p.toCpp} & {q.toCpp})"
 
-/-- one C++ function `name(xs, k)`; `lanes` must be at least 1 -/
+/-- one C++ function `name(xs, k)`; 0 lanes is printed as 1 (same sum, and no zero-length array or
+zero-step loop) -/
 def Loop.toCpp (L : Loop) (name : String) : String :=
-  let n := L.lanes
+  let n := max L.lanes 1
   let add := fun (lane : String) => s!"acc[{lane}] += {L.body.toCpp} & (0 - (std::uint64_t){L.keep.toCpp});"
   String.intercalate "\n" [
     s!"__attribute__((noinline)) static std::uint64_t {name}(const std::vector<std::uint64_t>& xs, std::uint64_t k) \{",
@@ -248,6 +249,7 @@ def Q.toCpp (fields : List String) : Q → String
 /-- C++ `name(rows, p0, p1, ...)`; `fields[i]` is the C++ expression for word field `i` of row `e`, and the
 includer defines `Row` with a `name` member and `Summ` with `count`, `total`, `first`, `last` -/
 def SPipe.toCpp (q : SPipe) (lanes nParams : Nat) (name rowType : String) (fields : List String) : String :=
+  let lanes := max lanes 1
   let keep := q.keep.toCpp fields
   let params := String.join ((List.range nParams).map fun i => s!", std::uint64_t p{i}")
   let add := fun (lane : String) =>

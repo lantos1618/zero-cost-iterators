@@ -22,6 +22,7 @@ run gen_fresh iter 0 sh -c '.lake/build/bin/gencpp | cmp - gen/proved_gen.hpp &&
 [ "${BENCH:-0}" = 1 ] && { run bench iter 0 .lake/build/bin/bench
   run bench_cpp iter 0 sh -c 'g++ -O2 -std=c++20 -o .lake/build/bench_cpp bench.cpp && .lake/build/bench_cpp'
   run bench_cpp_native iter 0 sh -c 'g++ -O3 -march=native -std=c++20 -o .lake/build/bench_cpp_native bench.cpp && .lake/build/bench_cpp_native'
-  grep -h BENCH "$R/bench.txt" "$R/bench_cpp.txt" "$R/bench_cpp_native.txt"; }
+  run ablate_cpp iter 0 sh -c 'g++ -O2 -std=c++20 -o .lake/build/ablate_cpp ablate.cpp && .lake/build/ablate_cpp'
+  grep -h BENCH "$R/bench.txt" "$R/bench_cpp.txt" "$R/bench_cpp_native.txt" "$R/ablate_cpp.txt"; }
 echo "TOTAL=$TOTAL UNEXPECTED=$UNEXPECTED"
 [ $UNEXPECTED = 0 ]

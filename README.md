@@ -86,8 +86,10 @@ ns per item, 1,000,000 items, `g++ -O2`:
 | `filter → map → summary`, records | 3.18 | 4.48 | 1.58 | **2.0×** |
 | `enumerate → find`, no match | 0.53 | 0.33 | 0.25 | **1.3×** |
 
-- **Clear win:** the record summary. The hand loop branches on every row and threads four fields through
-  one chain; GCC does not find the split at either level.
+- **Clear win, on random data:** the record summary. The gain comes from the branch-free mask. With ~60% of
+  rows kept in random order, the hand loop's branch mispredicts. On sorted rows the hand loop is faster than
+  ours (1.65 vs 2.34 ns). Splitting the summary and using 4 lanes add nothing here, and an unproved one-pass
+  masked loop beats ours on both inputs; see the ablation in [docs/PROOFS.md](docs/PROOFS.md).
 - **Small win:** the word sum, where GCC already makes the hand loop branch-free.
 - **Tie:** the search. It reads 8 MB per call and is limited by memory, and its times moved by up to 1.8×
   between runs, so its rows are within noise.
