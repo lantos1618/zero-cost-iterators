@@ -91,8 +91,14 @@ ns per item, 1,000,000 items, `g++ -O2`:
 - **Small win:** the word sum, where GCC already makes the hand loop branch-free.
 - **Tie:** the search. It reads 8 MB per call and is limited by memory, and its times moved by up to 1.8×
   between runs, so its rows are within noise.
-- **What is proved and what is not:** the proofs are about Lean lists and `UInt64`. The C++ loops are written
-  by hand from them and checked against the hand loops' results, not proved.
+- **Generated, not copied:** the word-sum loop is generated. `iter/Iter/Gen.lean` has a small pipeline
+  language, an optimiser `opt` and a proof, `opt_correct`, that the optimised loop equals the `Iter` chain for
+  every pipeline, lane count and input. `iter/GenCpp.lean` prints it to `iter/gen/proved_gen.hpp`, which
+  `bench.cpp` includes. The printer (30 lines) is the one unproved step. It also handles a safety gap:
+  Lean defines `x % 0 = x`, C++ leaves it undefined, so `%` is printed with a guard unless the divisor is a
+  nonzero literal.
+- **Still hand-written:** the records and search loops are copied from their proofs by hand and checked
+  against the hand loops' results, not proved.
 - **Details matter:** with `&&` instead of `&` in the records filter, the 2.2× disappears.
 
 ## Was this worth doing?
@@ -140,6 +146,7 @@ the first bad line in a file manifest.
 | path | contents |
 |---|---|
 | `iter/Iter/` | the library: `Basic` (iterators and their proofs), `Group` (`groupFold`), `Cost` (cost model), `Rewrite` (proved loop rewrites) |
+| `iter/Iter/Gen.lean`, `iter/GenCpp.lean`, `iter/gen/` | proved word-pipeline optimiser, its C++ printer, and the generated header |
 | `iter/` | the `tasks` CLI, its generated-input checker, the axiom audit, `check_c.py`, and the Lean and C++ benchmarks (`Bench.lean`, `bench.cpp`) |
 | `tasks/` | CLI fixtures, expected outputs and `replay.sh` |
 | `docs/DETAILS.md` | theorem list, cost model, CLI formats and exit codes, limits |

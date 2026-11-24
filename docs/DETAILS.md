@@ -123,7 +123,14 @@ identity `0` (`AddLaws`), instantiated for `UInt64` (`u64Laws`, wrapping like C+
 | `summary_split` | folding (count, total, first, last) = (length, sum, first row, last row) |
 | `head_filter`, `getLast_filter` | the first / last kept row is a forward / backward `find?` |
 
-`bench.cpp`'s `provedU`, `provedA` and `provedF` are hand transcriptions of these loops; they are compared with the hand
+**Generator (`iter/Iter/Gen.lean`).** `Pipe` is `filter keep → map f → sum` over 64-bit words, with
+expressions built from the item, a parameter `k`, literals, `+`, `*`, `^`, `%`, `==`, `<` and `&`. `opt` makes
+a masked, `k`-lane loop and moves a constant right factor of `f` after the sum. `opt_correct`: for every
+pipeline, lane count and input, `(opt lanes q).run k xs = q.run k xs`, where `q.run` is the `Iter` chain.
+`wordPipe_gen` instantiates it for the benchmark's pipeline. `Loop.toCpp` prints the loop; `replay.sh`
+checks the committed `gen/proved_gen.hpp` is exactly what it prints.
+
+`bench.cpp`'s `provedU` comes from that header; `provedA` and `provedF` are hand transcriptions of these loops; they are compared with the hand
 loops on several inputs (`results_equal`), not proved.
 
 **CLI (`iter/TaskCore.lean`).** `logPipe_spec`, `salesPipe_spec`, `salesPipe_keys` and `manifestPipe_spec`
@@ -160,7 +167,7 @@ excluded) and fails if any uses an axiom beyond `propext`, `Classical.choice` an
 items, each timing the median of 5 batches of 20 calls after a warm-up call; two rounds, the second reported in
 the README. Each call varies one argument so the compiler cannot hoist it out of the timing loop. C++ is built twice,
 with `g++ -O2 -std=c++20` and with `-O3 -march=native` (GCC 11.4: `std::views::filter`/`transform`/`iota`, no C++23 `enumerate`), and
-`enumerate` is written as `iota | transform`. Checksums agree across all variants. One VM, not repeated across
+`enumerate` is written as `iota | transform`. Checksums agree across all variants. Single runs can be outliers: in one full replay the native `provedA` row read 3.55 ns; two immediate reruns of the same binary gave 1.20–1.22 ns (hand loop 2.85–2.90). One VM, not repeated across
 machines; round-to-round noise on this VM was up to 2× on single rows.
 
 ## Rerunning every check
