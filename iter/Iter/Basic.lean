@@ -96,7 +96,7 @@ theorem denotes_array {α : Type} (a : Array α) : a.iter.Denotes a.toList := by
 @[inline] def filter {α : Type} (it : Iter α) (p : α → Bool) : Iter α :=
   ⟨fun k b => it.fold (fun b a => if p a then k b a else pure (.yield b)) b⟩
 
-@[inline] def takeStep {m : Type → Type} [Monad m] {α δ : Type} (k : δ → α → m (ForInStep δ)) (n : Nat)
+@[macro_inline] def takeStep {m : Type → Type} [Monad m] {α δ : Type} (k : δ → α → m (ForInStep δ)) (n : Nat)
     (s : δ × Nat) (a : α) : m (ForInStep (δ × Nat)) := do
   match ← k s.1 a with
   | .done b => pure (.done (b, s.2))
@@ -104,24 +104,19 @@ theorem denotes_array {α : Type} (a : Array α) : a.iter.Denotes a.toList := by
 
 /-- first `n` items; stops pulling the source as soon as the `n`-th item is handled -/
 @[inline] def take {α : Type} (it : Iter α) (n : Nat) : Iter α :=
-  ⟨fun k b => if n = 0 then pure b else Prod.fst <$> it.fold (fun (s : _ × Nat) a => do
-    match ← k s.1 a with
-    | .done b => pure (.done (b, s.2))
-    | .yield b => pure (if s.2 + 1 < n then .yield (b, s.2 + 1) else .done (b, s.2 + 1))) (b, 0)⟩
+  ⟨fun k b => if n = 0 then pure b else Prod.fst <$> it.fold (takeStep k n) (b, 0)⟩
 
-@[inline] def enumStep {m : Type → Type} [Monad m] {α δ : Type} (k : δ → Nat × α → m (ForInStep δ))
-    (s : δ × Nat) (a : α) : m (ForInStep (δ × Nat)) := do
-  match ← k s.1 (s.2, a) with
-  | .done b => pure (.done (b, s.2 + 1))
-  | .yield b => pure (.yield (b, s.2 + 1))
+@[macro_inline] def enumStep {m : Type → Type} [Monad m] {α δ : Type} (k : δ → Nat × α → m (ForInStep δ))
+    (s : δ × Nat) (a : α) : m (ForInStep (δ × Nat)) :=
+  match s with
+  | (b, i) => do
+    match ← k b (i, a) with
+    | .done b => pure (.done (b, i + 1))
+    | .yield b => pure (.yield (b, i + 1))
 
 /-- pair each item with its 0-based position in this iterator -/
 @[inline] def enumerate {α : Type} (it : Iter α) : Iter (Nat × α) :=
-  ⟨fun k b => Prod.fst <$> it.fold (fun (s : _ × Nat) a => match s with
-    | (b, i) => do
-      match ← k b (i, a) with
-      | .done b => pure (.done (b, i + 1))
-      | .yield b => pure (.yield (b, i + 1))) (b, 0)⟩
+  ⟨fun k b => Prod.fst <$> it.fold (enumStep k) (b, 0)⟩
 
 theorem lfold_map {m : Type → Type} [Monad m] {α β δ : Type} (k : δ → β → m (ForInStep δ)) (f : α → β) :
     ∀ (l : List α) b, lfold k b (l.map f) = lfold (fun b a => k b (f a)) b l

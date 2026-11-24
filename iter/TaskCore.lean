@@ -15,6 +15,13 @@ def splitLines (s : String) : List String :=
   | some "" => ps.dropLast
   | _ => ps
 
+/-- "A", "A or B", "A, B or C" -/
+def oneOf : List String → String
+  | [] => ""
+  | [a] => a
+  | [a, b] => a ++ " or " ++ b
+  | a :: rest => a ++ ", " ++ oneOf rest
+
 def isNatStr (s : String) : Bool := !s.isEmpty && s.all Char.isDigit
 
 /-- exact integer cents → "D.CC" -/
@@ -23,18 +30,19 @@ def dollars (c : Nat) : String :=
 
 /-- parse every non-skipped line (1-based line numbers from `start`); first error wins -/
 def parseLines {α : Type} (parse : Nat → String → Except String α) (skip : String → Bool)
-    (ls : List String) (start : Nat := 1) : Except (Nat × String) (List α) :=
-  let r := (ls.enumFrom start).foldl (fun (acc : Except (Nat × String) (List α)) (nl : Nat × String) => match acc with
-    | .error e => .error e
-    | .ok out => if skip nl.2 then .ok out else match parse nl.1 nl.2 with
-        | .ok x => .ok (x :: out)
-        | .error m => .error (nl.1, m)) (.ok [])
-  r.map List.reverse
+    (ls : List String) (start : Nat := 1) : Except (Nat × String) (List α) := do
+  let mut out : Array α := #[]
+  for (n, l) in ls.enumFrom start do
+    unless skip l do
+      match parse n l with
+      | .ok x => out := out.push x
+      | .error m => throw (n, m)
+  return out.toList
 
-/-! ## 1. logsum: access-log summary (filter → map → fuse → foldl) -/
+/-! ## 1. logsum: access-log summary (filter → map → foldl) -/
 
 /-- one record = `TS LEVEL SERVICE LATENCY_MS PATH`, single spaces, LEVEL ∈ {INFO, WARN, ERROR},
-LATENCY_MS decimal digits (exact Nat, no size limit). Empty lines and lines starting with '#' are skipped. -/
+LATENCY_MS decimal digits (an arbitrary-precision nonnegative integer). Empty lines and lines starting with '#' are skipped. -/
 structure LogRec where
   line : Nat
   ts : String
@@ -44,14 +52,15 @@ structure LogRec where
   path : String
   deriving Repr, BEq, DecidableEq
 
+def logLevels : List String := ["INFO", "WARN", "ERROR"]
+
 def logSkip (l : String) : Bool := l.isEmpty || l.startsWith "#"
 
 def parseLogLine (n : Nat) (l : String) : Except String LogRec :=
   match l.splitOn " " with
   | [ts, lv, sv, lat, p] =>
     if ts.isEmpty || sv.isEmpty || p.isEmpty then .error "empty field (fields are separated by single spaces)"
-    else if !(lv == "INFO" || lv == "WARN" || lv == "ERROR") then
-      .error s!"level must be INFO, WARN or ERROR, got '{lv}'"
+    else if !logLevels.contains lv then .error s!"level must be {oneOf logLevels}, got '{lv}'"
     else if !isNatStr lat then .error s!"latency_ms must be decimal digits, got '{lat}'"
     else .ok ⟨n, ts, lv, sv, lat.toNat!, p⟩
   | fs => .error s!"expected 5 space-separated fields, got {fs.length}"
@@ -116,7 +125,7 @@ def logReport (file : String) (nLines nRecs : Nat) (o : LogOpts) (s : LogSumm) :
     s!"first: {hit s.first}",
     s!"last: {hit s.last}"] ++ "\n"
 
-/-! ## 2. sales: sales by product (filter → map → fuse → groupFold, String keys) -/
+/-! ## 2. sales: sales by product (filter → map → groupFold, String keys) -/
 
 /-- CSV dialect: first line is exactly `product,qty,unit_cents,status`; then one row per line,
 4 fields split on ',', NO quoting/escaping (a ',' inside a field is a field-count error), no trimming;
@@ -131,6 +140,8 @@ structure Sale where
   deriving Repr, BEq, DecidableEq
 
 def salesHeader : String := "product,qty,unit_cents,status"
+def statusPaid : String := "paid"
+def saleStatuses : List String := [statusPaid, "refunded"]
 
 def parseSaleLine (n : Nat) (l : String) : Except String Sale :=
   match l.splitOn "," with
@@ -138,7 +149,7 @@ def parseSaleLine (n : Nat) (l : String) : Except String Sale :=
     if p.isEmpty then .error "empty product"
     else if !isNatStr q then .error s!"qty must be decimal digits, got '{q}'"
     else if !isNatStr u then .error s!"unit_cents must be decimal digits, got '{u}'"
-    else if !(st == "paid" || st == "refunded") then .error s!"status must be paid or refunded, got '{st}'"
+    else if !saleStatuses.contains st then .error s!"status must be {oneOf saleStatuses}, got '{st}'"
     else .ok ⟨n, p, q.toNat!, u.toNat!, st⟩
   | fs => .error s!"expected 4 comma-separated fields (no quoting), got {fs.length}"
 
@@ -153,7 +164,7 @@ structure SalesOpts where
   minQty : Nat := 0
 
 /-- the visible selection condition: refunded rows are excluded -/
-def saleKeep (o : SalesOpts) (s : Sale) : Bool := s.status == "paid" && decide (s.qty ≥ o.minQty)
+def saleKeep (o : SalesOpts) (s : Sale) : Bool := s.status == statusPaid && decide (s.qty ≥ o.minQty)
 
 structure Agg where
   lines : Nat := 0
@@ -188,7 +199,7 @@ def salesReport (file : String) (nRows : Nat) (o : SalesOpts) (g : List (String 
     s!"rows: {nRows} (kept: {tot.lines}; filter: status=paid min_qty={o.minQty})",
     "product,lines,units,revenue_cents,revenue"] ++ g.map (fun kv => row kv.1 kv.2) ++ [row "TOTAL" tot]) ++ "\n"
 
-/-! ## 3. manifest: first invalid entry (enumerate → fuse → find) -/
+/-! ## 3. manifest: first invalid entry (enumerate → find?) -/
 
 def isLowerHex (c : Char) : Bool := c.isDigit || (c.toNat ≥ 97 && c.toNat ≤ 102)
 

@@ -45,9 +45,9 @@ Benchmark, 1,000,000 items, nanoseconds per item:
 
 | pipeline | hand loop | `Iter` chain | eager lists |
 |---|---|---|---|
-| `filter → map → foldl` on `UInt64` | 1.85 | 2.09 | 30.2 |
-| `filter → map → foldl` on records | 8.43 | 8.43 | |
-| `enumerate → find?` (no match) | 1.98 | 13.3 | |
+| `filter → map → foldl` on `UInt64` | 1.86 | 2.16 | 30.3 |
+| `filter → map → foldl` on records | 8.42 | 8.61 | |
+| `enumerate → find?` (no match) | 1.98 | 14.6 | |
 
 Not covered: the cost model is not formally linked to Lean's compiler, and `enumerate` and `take` still allocate
 in compiled code (the last row). See `docs/DETAILS.md` for these limits.

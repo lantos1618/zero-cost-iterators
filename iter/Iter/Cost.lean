@@ -34,6 +34,11 @@ instance : Add Cost := ⟨fun a b => ⟨a.pulls + b.pulls, a.calls + b.calls, a.
 @[simp] theorem add_calls (a b : Cost) : (a + b).calls = a.calls + b.calls := rfl
 @[simp] theorem add_allocs (a b : Cost) : (a + b).allocs = a.allocs + b.allocs := rfl
 
+/-- account for one more item read and `n` more callback calls -/
+def Cost.tick {S : Type} (n : Nat) (r : S × Cost) : S × Cost := (r.1, ⟨r.2.pulls + 1, r.2.calls + n, r.2.allocs⟩)
+@[simp] theorem Cost.tick_pulls {S : Type} (n : Nat) (r : S × Cost) : (Cost.tick n r).2.pulls = r.2.pulls + 1 := rfl
+@[simp] theorem Cost.tick_calls {S : Type} (n : Nat) (r : S × Cost) : (Cost.tick n r).2.calls = r.2.calls + n := rfl
+
 /-- pipeline syntax -/
 inductive Chain : Type → Type → Type 1
   | src {σ : Type} : Chain σ σ
@@ -80,13 +85,11 @@ def runLoop (b : Body σ γ) (t : Term γ ρ) : t.S → List σ → t.S × Cost
   | s, [] => (s, Cost.zero)
   | s, x :: xs =>
     match (b.run x).1 with
-    | none => ((runLoop b t s xs).1, ⟨(runLoop b t s xs).2.pulls + 1,
-        (runLoop b t s xs).2.calls + (b.run x).2, (runLoop b t s xs).2.allocs⟩)
+    | none => Cost.tick (b.run x).2 (runLoop b t s xs)
     | some y =>
       match t.step s y with
       | .done s' => (s', ⟨1, (b.run x).2 + 1, 0⟩)
-      | .yield s' => ((runLoop b t s' xs).1, ⟨(runLoop b t s' xs).2.pulls + 1,
-          (runLoop b t s' xs).2.calls + (b.run x).2 + 1, (runLoop b t s' xs).2.allocs⟩)
+      | .yield s' => Cost.tick ((b.run x).2 + 1) (runLoop b t s' xs)
 
 /-- materializing pass: one read per item, one cell per output -/
 def collect (b : Body σ α) : List σ → List α × Cost
@@ -185,12 +188,12 @@ theorem loop_pulls_le (b : Body σ γ) (t : Term γ ρ) : ∀ (xs : List σ) s, 
   | x :: xs, s => by
     simp only [runLoop, List.length_cons]
     cases (b.run x).1 with
-    | none => have := loop_pulls_le b t xs s; simp only []; omega
+    | none => have := loop_pulls_le b t xs s; simp only [Cost.tick_pulls]; omega
     | some y =>
       dsimp only
       cases t.step s y with
       | done _ => simp only []; omega
-      | yield s' => have := loop_pulls_le b t xs s'; simp only []; omega
+      | yield s' => have := loop_pulls_le b t xs s'; simp only [Cost.tick_pulls]; omega
 
 /-- callbacks one item costs: body calls plus the terminal step if a value reaches it -/
 def Body.calls (b : Body σ γ) (x : σ) : Nat := (b.run x).2 + if (b.run x).1.isSome then 1 else 0
@@ -203,11 +206,12 @@ theorem loop_nonstop (b : Body σ γ) (t : Term γ ρ) (h : t.NonStop) : ∀ (xs
     cases hb : (b.run x).1 with
     | none =>
       have := loop_nonstop b t h xs s
-      simp only [Option.isSome_none, Bool.false_eq_true, ↓reduceIte]; constructor <;> omega
+      simp only [Option.isSome_none, Bool.false_eq_true, ↓reduceIte, Cost.tick_pulls, Cost.tick_calls]
+      constructor <;> omega
     | some y =>
       obtain ⟨s', hs⟩ := h s y
       have := loop_nonstop b t h xs s'
-      simp only [hs, Option.isSome_some, ↓reduceIte]; constructor <;> omega
+      simp only [hs, Option.isSome_some, ↓reduceIte, Cost.tick_pulls, Cost.tick_calls]; constructor <;> omega
 
 theorem calls_call {β : Type} (f : α → β) (k : Body β γ) (y : α) :
     (Body.call f k).calls y = 1 + k.calls (f y) := by

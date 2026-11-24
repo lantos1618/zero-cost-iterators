@@ -112,7 +112,7 @@ filter twice (`mut_dup`, 15 calls), and a find that keeps reading (`mut_noexit`,
 **CLI (`iter/TaskCore.lean`).** `logPipe_spec`, `salesPipe_spec`, `salesPipe_keys` and `manifestPipe_spec`
 are one-line compositions of the lemmas above. `entryBad_trace`: tracing doesn't change the answer.
 
-`iter/TaskAudit.lean` lists every theorem in `Iter` and `TaskCore` (115, auto-generated equation lemmas
+`iter/TaskAudit.lean` lists every theorem in `Iter` and `TaskCore` (117, auto-generated equation lemmas
 excluded) and fails if any uses an axiom beyond `propext`, `Classical.choice` and `Quot.sound`. No `sorry`.
 
 ## What is checked, not proved
@@ -131,7 +131,7 @@ excluded) and fails if any uses an axiom beyond `propext`, `Classical.choice` an
 - The cost model is a model. Nothing proves that Lean's compiler preserves it; `check_c.py` and the benchmark
   are the evidence for compiled code.
 - `take` and `enumerate` carry their counter in a pair with the accumulator. In Lean 4.15's output this pair,
-  and the `(index, item)` pair, are heap cells per item: `enumerate → find?` is about 6.7× slower than a hand
+  and the `(index, item)` pair, are heap cells per item: `enumerate → find?` is about 7× slower than a hand
   loop. The cost model does not cover these two adapters.
 - `groupFold` uses an association list: O(keys) work per item.
 - The CLI reads each file whole before the pipeline runs, so early exit saves only validation calls.

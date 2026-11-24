@@ -35,7 +35,7 @@ termination_by xs.size - i
 @[noinline] def stagedU (xs : Array UInt64) (k : UInt64) : UInt64 :=
   ((xs.toList.filter (fun x => (x ^^^ k) % 3 == 0)).map (· * 2)).foldl (· + ·) 0
 
-/-- records: filter → map to a tuple → foldl into a summary (the old `viewA` shape) -/
+/-- records: filter → map to a tuple → foldl into a summary -/
 @[noinline] def iterA (es : Array Emp) (minSal pct : Nat) : Summ :=
   es.iter.filter (fun e => e.active && e.salary ≥ minSal)
     |>.map (fun e => (e.name, e.salary * pct / 100)) |>.foldl s0 summStep
@@ -76,7 +76,7 @@ def timeNs {α : Type} (reps : Nat) (f : Nat → α) (sink : α → UInt64) : IO
 
 def median (xs : Array Nat) : Nat := (xs.qsort (· < ·))[xs.size / 2]!
 
-def bench {α : Type} (label : String) (n reps : Nat) (f : Nat → α) (sink : α → UInt64) : IO UInt64 := do
+def bench {α : Type} (label : String) (n reps : Nat) (f : Nat → α) (sink : α → UInt64) : IO Unit := do
   let _ := sink (f 0)   -- warm-up run, not timed
   let mut ts : Array Nat := #[]
   let mut chk : UInt64 := 0
@@ -85,7 +85,6 @@ def bench {α : Type} (label : String) (n reps : Nat) (f : Nat → α) (sink : �
     ts := ts.push t; chk := c
   let ns := median ts
   IO.println s!"BENCH {label} median_ns_per_item_x100={ns * 100 / (n * reps)} checksum={chk}"
-  return chk
 
 def main (args : List String) : IO UInt32 := do
   let n := (args.head? >>= String.toNat?).getD 1000000
@@ -104,11 +103,11 @@ def main (args : List String) : IO UInt32 := do
   let reps := 20
   for round in [1:3] do
     IO.println s!"BENCH round={round}"
-    let _ ← bench "handU" n reps (fun r => handU xs r.toUInt64) id
-    let _ ← bench "iterU" n reps (fun r => iterU xs r.toUInt64) id
-    let _ ← bench "stagedU" n reps (fun r => stagedU xs r.toUInt64) id
-    let _ ← bench "handA" n reps (fun r => handA es (50000 + r % 2) 90) (fun r => r.total.toUInt64)
-    let _ ← bench "iterA" n reps (fun r => iterA es (50000 + r % 2) 90) (fun r => r.total.toUInt64)
-    let _ ← bench "handF_miss" n reps (fun r => handF xs (big + 1 + r.toUInt64)) (fun r => (r.map (·.2)).getD 0)
-    let _ ← bench "iterF_miss" n reps (fun r => iterF xs (big + 1 + r.toUInt64)) (fun r => (r.map (·.2)).getD 0)
+    bench "handU" n reps (fun r => handU xs r.toUInt64) id
+    bench "iterU" n reps (fun r => iterU xs r.toUInt64) id
+    bench "stagedU" n reps (fun r => stagedU xs r.toUInt64) id
+    bench "handA" n reps (fun r => handA es (50000 + r % 2) 90) (fun r => r.total.toUInt64)
+    bench "iterA" n reps (fun r => iterA es (50000 + r % 2) 90) (fun r => r.total.toUInt64)
+    bench "handF_miss" n reps (fun r => handF xs (big + 1 + r.toUInt64)) (fun r => (r.map (·.2)).getD 0)
+    bench "iterF_miss" n reps (fun r => iterF xs (big + 1 + r.toUInt64)) (fun r => (r.map (·.2)).getD 0)
   return if ok1 && ok2 && ok3 then 0 else 1

@@ -28,7 +28,7 @@ def reach(fn):
         todo += [c for c in re.findall(r'\b(l_\w+)\(', bodies[f]) if c not in seen]
     return seen
 def counts(fn):
-    fs = reach(fn) - {'l_s0'}
+    fs = reach(fn)
     text = "".join(bodies[f] for f in fs)
     return dict(alloc=len(re.findall(r'lean_alloc_\w+\(', text)),
                 closure=len(re.findall(r'lean_alloc_closure\(', text)),

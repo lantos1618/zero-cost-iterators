@@ -19,7 +19,7 @@ def genLog : StateM G (String × List LogRec × LogOpts) := do
   let mut recs : Array LogRec := #[]
   for i in [0:n] do
     if (← rnd 6) == 0 then lines := lines.push (← pick ["", "# comment", "#"])
-    let lv ← pick ["INFO", "WARN", "ERROR", "ERROR"]
+    let lv ← pick (logLevels ++ ["ERROR"])
     let sv ← pick ["api", "db", "web"]
     let c ← rnd 9; let big ← rnd 1000; let small ← rnd 10
     let lat := if c == 0 then 10 ^ 20 + big else small * 100
@@ -60,7 +60,7 @@ def genSales : StateM G (String × List Sale × SalesOpts) := do
     let q ← rnd 10
     let c ← rnd 10; let big ← rnd 100; let small ← rnd 1000
     let u := if c == 0 then 10 ^ 18 + big else small
-    let st ← pick ["paid", "paid", "paid", "refunded"]
+    let st ← pick ([statusPaid, statusPaid] ++ saleStatuses)
     let r : Sale := ⟨lines.size + 1, p, q, u, st⟩
     rows := rows.push r
     lines := lines.push s!"{p},{q},{u},{st}"
