@@ -65,8 +65,9 @@ Partly. Honest accounting:
   200 lines and composes, so each new pipeline's correctness proof is one line.
 - **Zero cost, for the common case.** A `filter → map → fold` chain compiles to the same loop a person would
   write in Lean: within 0–16% of the hand loop, and 14× faster than staged lists. In C++ the equivalent
-  `std::views` chain was 4.5× slower than its hand loop on the same row, because GCC vectorises the hand loop
-  but not the view. Fused iterators are not free in C++ either.
+  `std::views` chain was 4.5× slower than its hand loop on the same row: GCC turns the hand loop's `if` into a
+  branch-free select (`cmov`) but keeps an unpredictable branch inside the view (checked in the assembly).
+  Fused iterators are not free in C++ either.
 - **What it does not deliver.** The zero-cost theorem is about a model; the compiled-code evidence is a script
   and a benchmark. `enumerate` costs 7× a hand loop. Lean itself is 2–20× slower than C++ on these loops,
   mostly from boxed array elements, reference counting and arbitrary-precision indices. So this is no
