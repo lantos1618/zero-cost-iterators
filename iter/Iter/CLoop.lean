@@ -520,6 +520,8 @@ theorem Q.toC_eval (ps r : List UInt64) (hf : ∀ i, env (.fld i) = r.getD i 0)
     simp [Q.toC, CE.eval, Q.eval, Op.eval, X.toC_eval env ps r hf hp a]
   | .ge a b => by
     simp [Q.toC, CE.eval, Q.eval, Op.eval, X.toC_eval env ps r hf hp a, X.toC_eval env ps r hf hp b]
+  | .lt a b => by
+    simp [Q.toC, CE.eval, Q.eval, Op.eval, X.toC_eval env ps r hf hp a, X.toC_eval env ps r hf hp b]
   | .and p q => by
     simp only [Q.toC, CE.eval, Q.eval, Op.eval, Q.toC_eval ps r hf hp p, Q.toC_eval ps r hf hp q]
     rw [band01]

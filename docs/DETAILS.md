@@ -142,7 +142,8 @@ dropped prefix changes nothing) and `step1_step2` (once `first` is set the two s
 `fast2_correct : fast2 = run`; `recPipe_gen` instantiates it for the benchmark. `SPipe.toCpp` prints it.
 `SPipe.fast3 mode` handles each later row with the masked step or a branchy one (`stepB`, equal by
 `stepB_step2`) as `mode` says; `fast3_correct` holds for every `mode`, and `SPipe.toCppAdapt` prints a loop
-that picks per block from the data (`adaptA`, `recPipe_adapt`). The count is a `Nat` in Lean and a `uint64_t` in
+that picks per block from the data (`adaptA`, `recPipe_adapt`). `q6Pipe` is TPC-H Query 6 in the same language; `q6_gen`, `q6_adapt` and
+`q6_total` (its total is Σ price × discount over the kept rows) are one-line instances. The count is a `Nat` in Lean and a `uint64_t` in
 C++, which agree for any array that fits in memory.
 
 **Printer fuzzing (`iter/FuzzCpp.lean`).** 300 random word pipelines (0–9 lanes; each as sum, count, `min?`

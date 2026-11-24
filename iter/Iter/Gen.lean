@@ -510,12 +510,14 @@ def X.eval (e : X) (ps r : List UInt64) : UInt64 :=
 inductive Q where
   | ne0 (a : X)
   | ge (a b : X)
+  | lt (a b : X)
   | and (p q : Q)
 
 def Q.eval (q : Q) (ps r : List UInt64) : Bool :=
   match q with
   | .ne0 a => a.eval ps r != 0
   | .ge a b => decide (a.eval ps r ≥ b.eval ps r)
+  | .lt a b => decide (a.eval ps r < b.eval ps r)
   | .and p q => p.eval ps r && q.eval ps r
 
 structure Row (ν : Type) where
@@ -697,6 +699,7 @@ open Iter.C in
 def Q.toC : Q → CE
   | .ne0 a => .bin .ne a.toC (.lit 0)
   | .ge a b => .bin .ge a.toC b.toC
+  | .lt a b => .bin .lt a.toC b.toC
   | .and p q => .bin .band p.toC q.toC
 
 open Iter.C in
@@ -784,5 +787,29 @@ theorem recPipe_gen (ps : List UInt64) (rows : Array (Row ν)) : recPipe.fast2 p
 theorem recPipe_adapt (mode : Nat → Bool) (ps : List UInt64) (rows : Array (Row ν)) :
     recPipe.fast3 mode ps rows = recPipe.run ps rows :=
   fast3_correct mode recPipe ps rows
+
+/-- TPC-H Query 6 as a record pipeline. Fields: 0 ship date (days), 1 discount (percent), 2 quantity,
+3 extended price (cents). Parameters: 0 first date, 1 end date (exclusive), 2 lowest discount, 3 highest
+discount, 4 quantity bound (exclusive). Keep `p0 ≤ date < p1 ∧ p2 ≤ disc ≤ p3 ∧ qty < p4`, pay
+`price * disc`; the summary's `total` is the query's revenue (times 100). -/
+def q6Pipe : SPipe :=
+  ⟨.and (.ge (.fld 0) (.prm 0)) (.and (.lt (.fld 0) (.prm 1))
+     (.and (.ge (.fld 1) (.prm 2)) (.and (.ge (.prm 3) (.fld 1)) (.lt (.fld 2) (.prm 4))))),
+   .mul (.fld 3) (.fld 1)⟩
+
+theorem q6_gen (ps : List UInt64) (rows : Array (Row ν)) : q6Pipe.fast2 ps rows = q6Pipe.run ps rows :=
+  fast2_correct q6Pipe ps rows
+
+theorem q6_adapt (mode : Nat → Bool) (ps : List UInt64) (rows : Array (Row ν)) :
+    q6Pipe.fast3 mode ps rows = q6Pipe.run ps rows :=
+  fast3_correct mode q6Pipe ps rows
+
+/-- the Query 6 chain is the textbook statement: sum `price * disc` over the rows that pass all five tests -/
+theorem q6_total (ps : List UInt64) (rows : Array (Row ν)) :
+    (q6Pipe.run ps rows).total =
+      ((rows.toList.filter fun r => q6Pipe.keep.eval ps r.f).map fun r => r.f.getD 3 0 * r.f.getD 1 0).foldl
+        (· + ·) 0 := by
+  rw [SPipe.run, (((denotes_array rows).filter _).map _).foldl, summary_split u64Laws]
+  simp only [sumL, List.map_map, Function.comp_def, q6Pipe, X.eval]
 
 end Iter.Gen

@@ -17,6 +17,20 @@ int main(int argc, char** argv) {
     for (u64 m : {0ull, 50000ull, 250000ull})
       ok = ok && same(bfA(*rows, m, 90), handA(*rows, m, 90)) && same(adaptA(*rows, m, 90), handA(*rows, m, 90));
   ok = ok && provedF(xs, d.big) == handF(xs, d.big) && !provedF(xs, d.big + 1);
+  // Query 6 at its standard parameters, an empty date range, everything kept, and short inputs
+  const u64 q6ps[][5] = {{Q6_D0, Q6_D1, 5, 7, 24}, {Q6_D1, Q6_D0, 5, 7, 24}, {0, ~0ull, 0, ~0ull, ~0ull}, {100, 2000, 2, 9, 40}};
+  for (auto* ls : {&d.lines, &d.linesByDate})
+    for (std::size_t len : {std::size_t(0), std::size_t(1), std::size_t(5), std::size_t(1000), ls->size()}) {
+      std::vector<Line> part(ls->begin(), ls->begin() + std::min(len, ls->size()));
+      for (const auto& p : q6ps) {
+        Summ h = handQ6(part, p[0], p[1], p[2], p[3], p[4]);
+        ok = ok && same(bfQ6(part, p[0], p[1], p[2], p[3], p[4]), h) && same(provedQ6(part, p[0], p[1], p[2], p[3], p[4]), h) &&
+             same(adaptQ6(part, p[0], p[1], p[2], p[3], p[4]), h);
+#ifdef __AVX2__
+        ok = ok && same(simdQ6(part, p[0], p[1], p[2], p[3], p[4]), h);
+#endif
+      }
+    }
 #ifdef __AVX2__
   for (u64 k : {1ull, 2ull, 7ull})
     ok = ok && simdU(xs, k) == handU(xs, k) && simdC(xs, k) == handC(xs, k) && simdMax(xs, k) == handMax(xs, k);
@@ -56,6 +70,17 @@ int main(int argc, char** argv) {
     bench((base + "/hand").c_str(), n, reps, [&](int r) { return handA(*rows, 50000 + r % 2, 90).total; });
     bench((base + "/bf").c_str(), n, reps, [&](int r) { return bfA(*rows, 50000 + r % 2, 90).total; });
     bench((base + "/ours").c_str(), n, reps, [&](int r) { return adaptA(*rows, 50000 + r % 2, 90).total; });
+  }
+  const std::pair<const char*, const std::vector<Line>*> q6Sets[] = {{"tpch_q6_dbgen_order", &d.lines}, {"tpch_q6_by_date", &d.linesByDate}};
+  for (const auto& set : q6Sets) {
+    const std::vector<Line>* ls = set.second;
+    std::string base = set.first;
+    bench((base + "/hand").c_str(), n, reps, [&](int r) { return handQ6(*ls, Q6_D0 + r % 2, Q6_D1, 5, 7, 24).total; });
+    bench((base + "/bf").c_str(), n, reps, [&](int r) { return bfQ6(*ls, Q6_D0 + r % 2, Q6_D1, 5, 7, 24).total; });
+#ifdef __AVX2__
+    bench((base + "/simd").c_str(), n, reps, [&](int r) { return simdQ6(*ls, Q6_D0 + r % 2, Q6_D1, 5, 7, 24).total; });
+#endif
+    bench((base + "/ours").c_str(), n, reps, [&](int r) { return provedQ6ptr(*ls, Q6_D0 + r % 2, Q6_D1, 5, 7, 24).total; });
   }
   bench("find_miss/hand", n, reps, [&](int r) { auto h = handF(xs, d.big + 1 + r); return h ? h->second : 0; });
   bench("find_miss/ours", n, reps, [&](int r) { auto h = provedF(xs, d.big + 1 + r); return h ? h->second : 0; });

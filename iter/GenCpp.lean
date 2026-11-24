@@ -1,6 +1,6 @@
 import Iter
 /-! Prints `gen/proved_gen.hpp`: the C++ for `Iter.Gen.opt 8 wordPipe` and `Iter.Gen.recPipe`, proved
-equal to their chains by `Iter.Gen.wordPipe_gen`, `Iter.Gen.wordPipe_count`, `Iter.Gen.wordPipe_max`, `Iter.Gen.wordPipe_nodiv*`, `Iter.Gen.recPipe_gen` and `Iter.Gen.recPipe_adapt`. `replay.sh` checks the committed header is what this prints. -/
+equal to their chains by `Iter.Gen.wordPipe_gen`, `Iter.Gen.wordPipe_count`, `Iter.Gen.wordPipe_max`, `Iter.Gen.wordPipe_nodiv*`, `Iter.Gen.recPipe_gen`, `Iter.Gen.recPipe_adapt`, `Iter.Gen.q6_gen` and `Iter.Gen.q6_adapt`. `replay.sh` checks the committed header is what this prints. -/
 open Iter.Gen
 
 def main : IO Unit := do
@@ -21,9 +21,15 @@ def main : IO Unit := do
     "// Iter.Gen.recPipe_gen proves this loop equal to the running summary; needs Emp and Summ from the includer.\n" ++
     recPipe.toCpp 2 "provedA" "Emp" fs ++ "\n\n" ++
     "// Iter.Gen.recPipe_adapt proves this loop equal to the running summary for every masked/branchy choice.\n" ++
-    recPipe.toCppAdapt 2 "adaptA" "Emp" fs 256 32 16 ++ "\n")
+    recPipe.toCppAdapt 2 "adaptA" "Emp" fs 256 32 16 ++ "\n\n" ++
+    "// TPC-H Query 6. Iter.Gen.q6_gen and Iter.Gen.q6_adapt prove these loops equal to the running summary\n" ++
+    "// (Iter.Gen.q6_total: its total is the query's revenue); needs Line from the includer.\n" ++
+    q6Pipe.toCpp 5 "provedQ6" "Line" q6fs ++ "\n\n" ++ q6Pipe.toCppAdapt 5 "adaptQ6" "Line" q6fs 256 32 16 ++ "\n\n" ++
+    "struct Q6Cand { const char* tag; Summ (*f)(const std::vector<Line>&, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t); };\n" ++
+    "static const Q6Cand provedQ6_cands[] = {{\"masked\", &provedQ6}, {\"adapt\", &adaptQ6}};\n")
 where
   fs := ["e.salary", "(std::uint64_t)e.active"]
+  q6fs := ["e.date", "e.disc", "e.qty", "e.price"]
   cands (base : String) (q : Pipe) : String :=
     let cs := [false, true].flatMap fun d => [1, 2, 4, 8].flatMap fun l => [(d, false, l), (d, true, l)]
     let pd := fun (d : Bool) => if d then "d" else ""

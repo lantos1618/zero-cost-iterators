@@ -65,6 +65,7 @@ pipeline's correctness proof is one line.
 | `x % d == 0` (odd `d`) = `x * inverse(d) < (2^64 - 1) / d + 1`, so the filter has no divide and can vectorise | `nodiv_ok`, `P.nodiv_eval`, `wordPipe_nodiv*` | proved |
 | record summary = search + one masked pass | `fast1_correct`, `fast2_correct` | proved |
 | record summary = search + any mix of masked and branchy rows, for every switch policy | `fast3_correct` | proved |
+| TPC-H Query 6 (five range tests, revenue = Σ price × discount) as a record pipeline; both generated loops equal it | `q6_gen`, `q6_adapt`, `q6_total` | proved |
 | the printed C++ loop structure (lanes, rounds, tail, `seen`, search) computes those loops | `printed_correct`, `printed_count`, `printed_red`, `printed_summary`, `printed_adapt` | proved, including the switching loop for every block size, window and threshold |
 | the branchy and range-for word printers compute the same loops (so the tuner only changes speed) | `printed_range`, `printed_range_count` (same model as `cRun` for the branchy step) | proved |
 | every printed expression (`E`, `P`, `X`, `Q`, masks, min/max identities) is a C syntax tree whose meaning is the Lean value and is never undefined (`/` and `%` by 0 are guarded) | `E.toC_eval`, `P.toC_eval`, `X.toC_eval`, `Q.toC_eval`, `word_step`, `red_step`, `rec_step` (`Iter/CExpr.lean`) | proved |
@@ -156,7 +157,7 @@ each rewrite. Earlier runs in this README disagreed with each other, so the scor
 - **What the languages can express:** word pipelines `filter → map → sum`, `filter → count` and
   `filter → map → min?`/`max?` over the item and one parameter,
   with `+ * ^ %`, `== <` and `&`; record pipelines `filter → map → summary` over word fields and parameters,
-  with `+ * /`, `!= 0 >=` and `&`. No other adapters, no strings, no user functions.
+  with `+ * /`, `!= 0 >= <` and `&`. No other adapters, no strings, no user functions.
 - **Proved vs trusted:** the loops are proved equal to the `Iter` chains (`opt_correct`, `fast2_correct`,
   `fast3_correct`, `count_correct`, `red_correct`). The loop structure the printers emit (lane rounds, inner loop, tail, lane fold, `seen`; the
   record search and masked pass) is modelled loop by loop in `iter/Iter/CLoop.lean` and proved equal too
@@ -171,19 +172,60 @@ each rewrite. Earlier runs in this README disagreed with each other, so the scor
   search is still copied by hand and only result-checked.
 - **How the proofs work, and the measurements behind each claim:** [docs/PROOFS.md](docs/PROOFS.md).
 
+## A real workload: TPC-H Query 6
+
+[TPC-H](https://www.tpc.org/tpch/) Query 6 is the standard database benchmark scan: a conjunction of range
+tests on one table, the kind of selection Ross (PODS 2002) studied for branchy versus branch-free code:
+
+```sql
+SELECT sum(l_extendedprice * l_discount) FROM lineitem
+WHERE l_shipdate >= '1994-01-01' AND l_shipdate < '1995-01-01'
+  AND l_discount BETWEEN 0.05 AND 0.07 AND l_quantity < 24
+```
+
+Written as a record pipeline it is `q6Pipe` in `iter/Iter/Gen.lean`. The only addition to the language was
+`<`, with its tree proof in `Q.toC_eval`. `q6_total` proves that the pipeline's total is this sum, and
+`q6_gen` and `q6_adapt` prove both generated loops equal it. Each is one line, reusing `fast2_correct` and
+`fast3_correct`, which is the recipe working on a query it was not written for.
+
+The data follows dbgen's layout: orders of 1–7 lines, ship date 1–121 days after a random order date,
+discount 0–10%, quantity 1–50. About 1.8% of rows pass. It is timed in dbgen's order and sorted by ship date
+(a clustered table). Every compiler and flag set in `falsify.sh` checks each loop against the hand loop
+first, at the standard parameters, an empty date range, all rows kept, and short inputs.
+
+| build | order | plain hand | branch-free hand | AVX2 hand | ours |
+|---|---|---:|---:|---:|---:|
+| GCC 11 `-O2` | dbgen | 3.24–3.45 | 1.89–2.00 | – | 1.91–2.05 (tie) |
+| GCC 11 `-O2` | by date | 1.81–1.92 | 1.90–2.07 | – | 1.71–1.87 (tie/win) |
+| GCC 12 `-O3 -march=native` | dbgen | 3.98–4.34 | 1.99–2.09 | 1.89–1.93 | 2.01–2.17 (**1.06–1.12× slower**) |
+| GCC 12 `-O3 -march=native` | by date | 2.26–2.42 | 2.07–2.09 | 1.84–1.92 | 1.78–1.88 (tie/win) |
+| clang 15 `-O3 -march=native` | dbgen | 3.66–3.73 | 2.04–2.05 | 2.23–2.27 | **1.92–1.96** |
+| clang 15 `-O3 -march=native` | by date | 2.16–2.20 | 2.04–2.18 | 2.26–2.37 | **1.76–1.95** |
+| GCC 11 profile-guided | dbgen | 3.41–3.59 | 1.99–2.13 | – | **1.92–2.02** |
+
+ns per row, range over two runs; all builds are in `falsify.sh`'s output.
+
+- **Against the plain hand loop,** the one most people write, ours is 1.7–2.0× faster in dbgen order.
+  The five `&&` tests become a mask, and the unpredictable branch goes away.
+- **Against a branch-free or AVX2 hand loop,** ours ties or wins, except with GCC `-O3 -march=native` in dbgen
+  order, where the hand AVX2 loop is 6–12% faster.
+- **Unlike the record benchmark,** the profile-guided build does not regress here.
+
 ## How to prove this wrong
 
 Each claim has a cheap test that would break it.
 
 | claim | cheapest way to break it | result |
 |---|---|---|
-| a chain equals its list program | find a chain and input where they differ: a counterexample would make the Lean proof impossible | `lake build` checks every proof; `replay.sh` audits the 348 theorems for `sorry` and non-standard axioms |
+| a chain equals its list program | find a chain and input where they differ: a counterexample would make the Lean proof impossible | `lake build` checks every proof; `replay.sh` audits the 373 theorems for `sorry` and non-standard axioms |
 | zero cost in the model | write a wasteful lowering that the cost theorems accept | the 3 planted ones (extra list, double test, no early exit) are rejected |
 | zero cost in compiled Lean | time a chain against its hand loop | **already broken** for `enumerate`, `drop`, `dropWhile`, `zip`: Lean boxes the counter (1.2–7× slower); holds for `filter → map → fold` |
 | the printed C++ computes what Lean proved | plant a printer bug and see if anything notices | 43,200 fuzz results under UBSan; all 3 planted bugs caught |
-| generated C++ is no more than 5% slower than the fastest hand loop: plain `if`, branch-free, and hand-written AVX2 where the build allows it | `sh iter/falsify.sh`: g++ 11 and 12, clang 15, `-O2` and `-O3 -march=native`, and GCC profile-guided builds | **broken in 7 of 56 rows** (below); no wrong results |
+| generated C++ is no more than 5% slower than the fastest hand loop: plain `if`, branch-free, and hand-written AVX2 where the build allows it | `sh iter/falsify.sh`: g++ 11 and 12, clang 15, `-O2` and `-O3 -march=native`, and GCC profile-guided builds | **broken in 11 and 13 of 70 rows** in two runs (below); no wrong results |
 
-`falsify.sh` rows that broke (ns per item; "best hand" is the fastest hand loop, "AVX2" is in `iter/common.hpp`):
+`falsify.sh` rows that broke in both runs (ns per item; "best hand" is the fastest hand loop, "AVX2" is in
+`iter/common.hpp`). A few other rows (count, max, Query 6 at GCC 12 `-O2`) broke by 5–11% in one run and not
+the other, which is this VM's noise:
 
 | build | pipeline | best hand | ours | ours / best hand |
 |---|---|---:|---:|---:|
@@ -192,6 +234,7 @@ Each claim has a cheap test that would break it.
 | GCC 11 and 12 `-O3 -march=native` | max | 0.54–0.60 (AVX2) | 0.66–1.16 | 1.2–1.9× slower |
 | GCC 11 and 12 `-O3 -march=native` | sum | 0.39–0.41 (AVX2) | 0.44–0.46 | 1.1× slower |
 | clang 15 `-O3 -march=native` | records, random | 1.33 (branch-free) | 1.46 | 1.1× slower |
+| GCC 11 and 12 `-O3 -march=native` | TPC-H Query 6, dbgen order | 1.88–1.93 (AVX2) | 1.99–2.17 | 1.06–1.12× slower |
 
 With clang 15 `-O3 -march=native`, ours beats the hand-written AVX2 loop on sum (0.31 vs 0.35), count (0.29
 vs 0.32) and max (0.47 vs 0.51). That comes from a new proved rewrite: `x % d == 0` for odd `d` becomes
@@ -274,7 +317,7 @@ the first bad line in a file manifest.
 | `iter/Iter/CLoop.lean` | the printed loops' C++ control flow modelled and proved equal to the proved loops; the printed expression trees proved equal to the Lean values |
 | `iter/FuzzCpp.lean` | differential fuzz of the C++ printers against Lean |
 | `iter/bench.cpp`, `iter/ablate.cpp` | C++ benchmark (hand, `std::views`, staged, ours) and the record-summary ablation |
-| `iter/common.hpp`, `iter/falsify.cpp`, `iter/falsify.sh` | shared C++ workloads, plain and branch-free hand loops, timer and tuner; the multi-compiler "prove us wrong" race |
+| `iter/common.hpp`, `iter/falsify.cpp`, `iter/falsify.sh` | shared C++ workloads (including TPC-H Query 6 rows), plain, branch-free and AVX2 hand loops, timer and tuner; the multi-compiler "prove us wrong" race |
 | `iter/` | the `tasks` CLI, its generated-input checker, the axiom audit, `check_c.py`, and the Lean and C++ benchmarks (`Bench.lean`, `bench.cpp`) |
 | `tasks/` | CLI fixtures, expected outputs and `replay.sh` |
 | `docs/DETAILS.md` | theorem list, cost model, CLI formats and exit codes, limits |

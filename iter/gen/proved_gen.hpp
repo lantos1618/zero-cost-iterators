@@ -552,3 +552,56 @@ __attribute__((noinline, optimize("no-tree-loop-if-convert"))) static Summ adapt
   s.count = cnt; s.total = tot; s.first = fp->name; s.last = lp->name;
   return s;
 }
+
+// TPC-H Query 6. Iter.Gen.q6_gen and Iter.Gen.q6_adapt prove these loops equal to the running summary
+// (Iter.Gen.q6_total: its total is the query's revenue); needs Line from the includer.
+__attribute__((noinline)) static Summ provedQ6(const std::vector<Line>& es, std::uint64_t p0, std::uint64_t p1, std::uint64_t p2, std::uint64_t p3, std::uint64_t p4) {
+  std::size_t i = 0, n = es.size();
+  for (; i < n; ++i) { const Line& e = es[i]; if (((e.date >= p0) & ((e.date < p1) & ((e.disc >= p2) & ((p3 >= e.disc) & (e.qty < p4)))))) break; }
+  Summ s;
+  if (i == n) return s;
+  const Line* fp = &es[i];
+  const Line* lp = fp;
+  std::uint64_t cnt = 1, tot;
+  { const Line& e = *fp; tot = (e.price * e.disc); }
+  for (++i; i < n; ++i) {
+    const Line& e = es[i];
+    std::uint64_t kb = ((std::uint64_t)((e.date >= p0) & ((e.date < p1) & ((e.disc >= p2) & ((p3 >= e.disc) & (e.qty < p4))))));
+    cnt += kb; tot += ((e.price * e.disc) & (0ULL - kb));
+    lp = kb ? &e : lp;
+  }
+  s.count = cnt; s.total = tot; s.first = fp->name; s.last = lp->name;
+  return s;
+}
+
+__attribute__((noinline, optimize("no-tree-loop-if-convert"))) static Summ adaptQ6(const std::vector<Line>& es, std::uint64_t p0, std::uint64_t p1, std::uint64_t p2, std::uint64_t p3, std::uint64_t p4) {
+  std::size_t i = 0, n = es.size();
+  for (; i < n; ++i) { const Line& e = es[i]; if (((e.date >= p0) & ((e.date < p1) & ((e.disc >= p2) & ((p3 >= e.disc) & (e.qty < p4)))))) break; }
+  Summ s;
+  if (i == n) return s;
+  const Line* fp = &es[i];
+  const Line* lp = fp;
+  std::uint64_t cnt = 1, tot;
+  { const Line& e = *fp; tot = (e.price * e.disc); }
+  bool masked = true;
+  for (++i; i < n;) {
+    std::size_t end = n - i > 256 ? i + 256 : n;
+    std::uint64_t starts = 0, w;
+    if (masked) {
+      std::size_t pe = end - i > 32 ? i + 32 : end;
+      w = pe - i;
+      std::uint64_t prev = lp + 1 == &es[i];
+      for (; i < pe; ++i) { const Line& e = es[i]; std::uint64_t k = ((e.date >= p0) & ((e.date < p1) & ((e.disc >= p2) & ((p3 >= e.disc) & (e.qty < p4))))); std::uint64_t m = 0 - k; starts += k & ~prev; prev = k; cnt += 1 & m; tot += (e.price * e.disc) & m; lp = k ? &e : lp; }
+      for (; i < end; ++i) { const Line& e = es[i]; std::uint64_t k = ((e.date >= p0) & ((e.date < p1) & ((e.disc >= p2) & ((p3 >= e.disc) & (e.qty < p4))))); std::uint64_t m = 0 - k; cnt += 1 & m; tot += (e.price * e.disc) & m; lp = k ? &e : lp; }
+    } else {
+      w = end - i;
+      for (; i < end; ++i) { const Line& e = es[i]; if (((e.date >= p0) & ((e.date < p1) & ((e.disc >= p2) & ((p3 >= e.disc) & (e.qty < p4)))))) { starts += lp + 1 != &e; cnt += 1; tot += (e.price * e.disc); lp = &e; } }
+    }
+    masked = starts * 16 > w;
+  }
+  s.count = cnt; s.total = tot; s.first = fp->name; s.last = lp->name;
+  return s;
+}
+
+struct Q6Cand { const char* tag; Summ (*f)(const std::vector<Line>&, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t); };
+static const Q6Cand provedQ6_cands[] = {{"masked", &provedQ6}, {"adapt", &adaptQ6}};

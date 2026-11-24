@@ -55,9 +55,10 @@ def genX : Nat → G X
 def genQ : Nat → G Q
   | 0 => do pure (.ne0 (← genX 1))
   | d + 1 => do
-    match ← rnd 3 with
+    match ← rnd 4 with
     | 0 => pure (.ne0 (← genX 2))
     | 1 => pure (.ge (← genX 2) (← genX 2))
+    | 2 => pure (.lt (← genX 2) (← genX 2))
     | _ => pure (.and (← genQ d) (← genQ d))
 
 def genList (n : Nat) (g : G α) : G (List α) := (List.range n).mapM fun _ => g

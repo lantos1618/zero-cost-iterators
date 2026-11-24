@@ -18,6 +18,9 @@ using u64 = std::uint64_t;
 
 struct Emp { std::string_view name; u64 salary; bool active; };
 struct Summ { u64 count = 0, total = 0; std::string_view first, last; };
+// a TPC-H lineitem row with the columns Query 6 reads: ship date (days from 1992-01-01), discount (percent),
+// quantity, extended price (cents)
+struct Line { std::string_view name; u64 date, disc, qty, price; };
 using Hit = std::optional<std::pair<std::size_t, u64>>;
 
 static Summ summStep(Summ s, std::string_view name, u64 pay) {
@@ -141,6 +144,70 @@ NOINLINE Summ bfA(const std::vector<Emp>& es, u64 minSal, u64 pct) {
   return s;
 }
 
+// TPC-H Query 6: date in [d0, d1), discount in [lo, hi], quantity < q; revenue = sum(price * discount)
+NOINLINE Summ handQ6(const std::vector<Line>& ls, u64 d0, u64 d1, u64 lo, u64 hi, u64 q) {
+  Summ s;
+  for (const Line& l : ls)
+    if (l.date >= d0 && l.date < d1 && l.disc >= lo && l.disc <= hi && l.qty < q) s = summStep(s, l.name, l.price * l.disc);
+  return s;
+}
+NOINLINE Summ bfQ6(const std::vector<Line>& ls, u64 d0, u64 d1, u64 lo, u64 hi, u64 q) {
+  u64 cnt = 0, tot = 0;
+  const Line *fp = nullptr, *lp = nullptr;
+  for (const Line& l : ls) {
+    u64 kb = (u64)(l.date >= d0) & (u64)(l.date < d1) & (u64)(l.disc >= lo) & (u64)(l.disc <= hi) & (u64)(l.qty < q);
+    cnt += kb; tot += (l.price * l.disc) & (0 - kb);
+    fp = !fp && kb ? &l : fp; lp = kb ? &l : lp;
+  }
+  Summ s; s.count = cnt; s.total = tot;
+  if (fp) { s.first = fp->name; s.last = lp->name; }
+  return s;
+}
+#ifdef __AVX2__
+static inline __m256i mul64(__m256i a, __m256i b) {
+  __m256i ll = _mm256_mul_epu32(a, b);
+  __m256i cross = _mm256_add_epi64(_mm256_mul_epu32(_mm256_srli_epi64(a, 32), b), _mm256_mul_epu32(a, _mm256_srli_epi64(b, 32)));
+  return _mm256_add_epi64(ll, _mm256_slli_epi64(cross, 32));
+}
+// 4 rows per vector: gather the 4 columns, unsigned compares by flipping the sign bit, masked count and sum;
+// first / last from the lane mask
+NOINLINE Summ simdQ6(const std::vector<Line>& ls, u64 d0, u64 d1, u64 lo, u64 hi, u64 q) {
+  const std::size_t n = ls.size();
+  std::size_t i = 0;
+  const __m256i sign = _mm256_set1_epi64x((long long)0x8000000000000000ull), ones = _mm256_set1_epi64x(-1);
+  auto fl = [&](u64 v) { return _mm256_set1_epi64x((long long)(v ^ 0x8000000000000000ull)); };
+  const __m256i vd0 = fl(d0), vd1 = fl(d1), vlo = fl(lo), vhi = fl(hi), vq = fl(q);
+  const __m256i idx = _mm256_setr_epi64x(0, sizeof(Line) / 8, 2 * sizeof(Line) / 8, 3 * sizeof(Line) / 8);
+  auto gt = [](__m256i a, __m256i b) { return _mm256_cmpgt_epi64(a, b); };
+  __m256i cnt = _mm256_setzero_si256(), tot = cnt;
+  const Line *fp = nullptr, *lp = nullptr;
+  for (; i + 4 <= n; i += 4) {
+    const long long* b = (const long long*)&ls[i].date;
+    __m256i dt = _mm256_i64gather_epi64(b, idx, 8), dc = _mm256_i64gather_epi64(b + 1, idx, 8);
+    __m256i qt = _mm256_i64gather_epi64(b + 2, idx, 8), pr = _mm256_i64gather_epi64(b + 3, idx, 8);
+    __m256i sdt = _mm256_xor_si256(dt, sign), sdc = _mm256_xor_si256(dc, sign), sqt = _mm256_xor_si256(qt, sign);
+    __m256i bad = _mm256_or_si256(_mm256_or_si256(gt(vd0, sdt), _mm256_xor_si256(gt(vd1, sdt), ones)),
+                                  _mm256_or_si256(_mm256_or_si256(gt(vlo, sdc), gt(sdc, vhi)), _mm256_xor_si256(gt(vq, sqt), ones)));
+    __m256i k = _mm256_xor_si256(bad, ones);
+    cnt = _mm256_sub_epi64(cnt, k);
+    tot = _mm256_add_epi64(tot, _mm256_and_si256(mul64(pr, dc), k));
+    int mm = _mm256_movemask_pd(_mm256_castsi256_pd(k));
+    if (mm) { if (!fp) fp = &ls[i + __builtin_ctz(mm)]; lp = &ls[i + 31 - __builtin_clz(mm)]; }
+  }
+  alignas(32) u64 c[4], t[4];
+  _mm256_store_si256((__m256i*)c, cnt); _mm256_store_si256((__m256i*)t, tot);
+  Summ s; s.count = c[0] + c[1] + c[2] + c[3]; s.total = t[0] + t[1] + t[2] + t[3];
+  for (; i < n; ++i) {
+    const Line& l = ls[i];
+    if (l.date >= d0 && l.date < d1 && l.disc >= lo && l.disc <= hi && l.qty < q) {
+      s.count += 1; s.total += l.price * l.disc; if (!fp) fp = &l; lp = &l;
+    }
+  }
+  if (fp) { s.first = fp->name; s.last = lp->name; }
+  return s;
+}
+#endif
+
 // Proved rewrites. provedU, provedC, provedMax, provedA and adaptA are generated from Lean (gen/proved_gen.hpp, proved by
 // Iter.Gen.wordPipe_gen and Iter.Gen.recPipe_gen; the printer is trusted). provedF below is written by hand
 // from Iter.Rewrite.chain_find_blocks and checked only by the results_equal test.
@@ -171,6 +238,7 @@ static u64 (*provedU)(const std::vector<u64>&, u64);
 static u64 (*provedC)(const std::vector<u64>&, u64);
 static Hit (*provedF)(const std::vector<u64>&, u64);
 static std::optional<u64> (*provedMax)(const std::vector<u64>&, u64);
+static Summ (*provedQ6ptr)(const std::vector<Line>&, u64, u64, u64, u64, u64);
 
 // same rows, inactive first, then by salary: the hand loop's branch becomes predictable
 static std::vector<Emp> sortedRows(std::vector<Emp> es) {
@@ -236,8 +304,28 @@ static decltype(C::f) tune(const char* what, const C (&cs)[N], R run) {
   return cs[best].f;
 }
 
+// Query 6's standard parameters: ship dates in 1994, discount 0.06 +- 0.01, quantity < 24
+constexpr u64 Q6_D0 = 731, Q6_D1 = 1096;
+
 // the timed workloads, and a tuning sample (same size and generator, different seed) that is never timed
-struct Data { std::vector<u64> xs; std::vector<Emp> es, sorted, runs, mixed; u64 big; std::vector<u64> tx; u64 tbig; };
+struct Data { std::vector<u64> xs; std::vector<Emp> es, sorted, runs, mixed; u64 big; std::vector<u64> tx; u64 tbig;
+              std::vector<Line> lines, linesByDate, tlines; };
+
+// lineitem rows in the order TPC-H dbgen writes them: orders of 1-7 lines, a random order date in 1992-01-01 ..
+// 1998-08-02, ship date 1-121 days later, discount 0-10%, quantity 1-50, price quantity * (900.00 .. 2000.00)
+static std::vector<Line> lineitems(std::size_t n, u64 seed) {
+  static const std::string_view names[] = {"l0", "l1", "l2", "l3", "l4", "l5", "l6", "l7"};
+  std::vector<Line> ls; ls.reserve(n);
+  auto next = [&] { seed = seed * 6364136223846793005ULL + 1442695040888963407ULL; return seed >> 33; };
+  while (ls.size() < n) {
+    u64 od = next() % 2406, lines = 1 + next() % 7;
+    for (u64 j = 0; j < lines && ls.size() < n; ++j) {
+      u64 qty = 1 + next() % 50;
+      ls.push_back({names[ls.size() % 8], od + 1 + next() % 121, next() % 11, qty, qty * (90000 + next() % 110001)});
+    }
+  }
+  return ls;
+}
 
 static Data makeData(std::size_t n) {
   Data d;
@@ -254,6 +342,10 @@ static Data makeData(std::size_t n) {
   d.tx.resize(n);
   for (u64 t = 7; u64& x : d.tx) { t = t * 6364136223846793005ULL + 1442695040888963407ULL; x = t >> 40; }
   d.tbig = *std::max_element(d.tx.begin(), d.tx.end());
+  d.lines = lineitems(n, 3);
+  d.linesByDate = d.lines;
+  std::stable_sort(d.linesByDate.begin(), d.linesByDate.end(), [](const Line& a, const Line& b) { return a.date < b.date; });
+  d.tlines = lineitems(n, 11);
   return d;
 }
 
@@ -262,5 +354,6 @@ static void tuneAll(const Data& d) {
   provedU = tune("provedU", provedU_cands, words);
   provedC = tune("provedC", provedC_cands, words);
   provedMax = tune("provedMax", provedMax_cands, [&](auto f) { u64 a = 0; for (u64 r = 0; r < 4; ++r) a += f(d.tx, r).value_or(0); return a; });
+  provedQ6ptr = tune("provedQ6", provedQ6_cands, [&](auto f) { return f(d.tlines, Q6_D0, Q6_D1, 5, 7, 24).total; });
   provedF = tune("provedF", provedF_cands, [&](auto f) { u64 a = 0; for (u64 r = 0; r < 4; ++r) a += f(d.tx, d.tbig + 1 + r) ? 1 : 0; return a; });
 }
